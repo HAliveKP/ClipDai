@@ -3,6 +3,8 @@
 
 # downloading - Twitch/Kick/YouTube change often: keep this current with `pip install -U yt-dlp`
 yt-dlp>=2025.1.1
+# chat replay for Twitch/YouTube VODs (chat signal); Kick and direct links degrade gracefully to "no signal"
+chat-downloader==0.2.8
 # local speech-to-text with word timestamps (we decode audio ourselves, so any PyAV version works)
 faster-whisper>=1.0.3
 # LLM + posting APIs

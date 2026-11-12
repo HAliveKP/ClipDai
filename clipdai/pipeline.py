@@ -88,7 +88,7 @@ def process_source(s, db: DB, url: str, start: float | None = None, end: float |
             raise RuntimeError("no speech found in this video (nothing to base clips on)")
         ctx = f"'{src.title}' by {src.uploader}".strip()
         progress("finding highlights")
-        clips = find_clips(s, segs, wav, src.duration, ctx, n)
+        clips = find_clips(s, segs, wav, src.duration, ctx, n, url=src.url)
         made = 0
         for i, c in enumerate(clips, 1):
             write_metadata(s, c, segs, ctx, src.uploader, src.url)

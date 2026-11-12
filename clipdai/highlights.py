@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from . import llm
+from .chat_signal import chat_curve, chat_score
 from .transcribe import Segment
 from .utils import fmt_time, log
 
@@ -82,7 +83,8 @@ def _text_in(segments: list[Segment], a: float, b: float) -> str:
 
 
 # --------------------------- heuristic (no API key) ---------------------------
-def heuristic(segments: list[Segment], wav: Path, total: float, n: int, lo: float, hi: float) -> list[Clip]:
+def heuristic(segments: list[Segment], wav: Path, total: float, n: int, lo: float, hi: float,
+              settings=None, chat_series=None) -> list[Clip]:
     energy = _energy_curve(wav)
     if energy.max() > 0:
         e = (energy - np.median(energy)) / (energy.std() + 1e-6)
@@ -90,6 +92,7 @@ def heuristic(segments: list[Segment], wav: Path, total: float, n: int, lo: floa
         e = energy
     win = int((lo + hi) / 2)
     cands: list[Clip] = []
+    weight = float(getattr(settings, "chat_signal_weight", 0.0) or 0.0)
     for t in range(0, max(int(total) - win, 1), 5):
         seg_e = e[t:t + win]
         if len(seg_e) == 0:
@@ -102,6 +105,8 @@ def heuristic(segments: list[Segment], wav: Path, total: float, n: int, lo: floa
         score = float(seg_e.mean()) + 0.35 * float(seg_e.max()) + 1.1 * min(hype, 5) + 0.3 * min(qs, 5) + 0.8 * min(wpm, 3)
         if words < 15:
             score -= 3
+        if weight:
+            score += weight * chat_score(t, t + win, chat_series)
         s, en = _snap(segments, t, t + win, lo, hi, total)
         cands.append(Clip(s, en, score, reason="loud + dense speech + hype words"))
     cands.sort(key=lambda c: -c.score)
@@ -185,8 +190,13 @@ def llm_pick(s, segments: list[Segment], total: float, n: int, lo: float, hi: fl
 
 
 def find_clips(s, segments: list[Segment], wav: Path, total: float, context: str,
-               n: int | None = None) -> list[Clip]:
+               n: int | None = None, url: str | None = None) -> list[Clip]:
     n = n or s.clips_per_video
+    series: np.ndarray | None = None
+    if url and s.chat_signal_weight:
+        series = chat_curve(url, total, s.work_dir / "chat")
+        if series is None:
+            log("[chat] no usable chat signal; scoring with remaining signals only")
     clips: list[Clip] = []
     if llm.available(s):
         # Groq's free tier caps a request at ~8k tokens/minute: a 25-minute chunk is too big, 10 minutes fits
@@ -197,7 +207,7 @@ def find_clips(s, segments: list[Segment], wav: Path, total: float, context: str
             log("[highlights] LLM returned nothing, falling back to offline heuristic")
         else:
             log("[highlights] no LLM key set: using offline heuristic (add a free Gemini/Groq key for better picks)")
-        clips = heuristic(segments, wav, total, n, s.clip_min, s.clip_max)
+        clips = heuristic(segments, wav, total, n, s.clip_min, s.clip_max, s, series)
     return clips
 
 

@@ -59,6 +59,7 @@ class Settings:
         self.clips_per_video = int(_env("CLIPS_PER_VIDEO", "5"))
         self.clip_min = float(_env("CLIP_MIN_SECONDS", "20"))
         self.clip_max = float(_env("CLIP_MAX_SECONDS", "60"))
+        self.chat_signal_weight = float(_env("CHAT_SIGNAL_WEIGHT", "0.3"))
         self.max_height = int(_env("MAX_SOURCE_HEIGHT", "1080"))
         self.layout = _env("LAYOUT", "blur").lower()
         self.crop_x = float(_env("CROP_X", "0.5"))
