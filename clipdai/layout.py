@@ -66,6 +66,49 @@ def frame_rect(sw: int, sh: int, W: int, H: int, e: dict) -> tuple[float, float,
     return (W - w) / 2, (H - h) / 2, w, h
 
 
+def _lerp_at(t: float, times: Sequence[float], values: Sequence[float]) -> float:
+    """Piecewise-linear value at ``t``; constant before the first / after the last keyframe."""
+    times = list(times); values = list(values)
+    n = len(times)
+    if n == 0:
+        return 0.5
+    if n == 1 or t <= times[0]:
+        return values[0]
+    if t >= times[-1]:
+        return values[-1]
+    lo, hi = 0, n - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if t < times[mid]:
+            hi = mid
+        else:
+            lo = mid
+    t0, t1 = times[lo], times[hi]
+    v0, v1 = values[lo], values[hi]
+    if t1 == t0:
+        return v0
+    return v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+
+
+def tracking_pan(t: float, e: dict) -> tuple[float, float]:
+    """(pan_x, pan_y) at source time ``t``.
+
+    When ``e.tracking`` is on and keyframes exist, returns the smoothed tracked
+    position at ``t``; otherwise returns the static ``pan_x``/``pan_y``. Used both
+    by the editor preview (ui.html mirror) and conceptually by the export, keeping
+    preview and export identical.
+    """
+    if not e.get("tracking"):
+        return _num(e.get("pan_x"), 0, 1, 0.5), _num(e.get("pan_y"), 0, 1, 0.5)
+    track = e.get("track") or []
+    if not track:
+        return _num(e.get("pan_x"), 0, 1, 0.5), _num(e.get("pan_y"), 0, 1, 0.5)
+    times = [k[0] for k in track]
+    xs = [k[1] for k in track]
+    ys = [k[2] for k in track]
+    return _lerp_at(t, times, xs), _lerp_at(t, times, ys)
+
+
 # ------------------------------------------------------------------ styles -------------------------------------------
 ANIMS = ("none", "fade", "pop", "slide", "typewriter", "karaoke")
 POSITIONS = ("top", "middle", "bottom")
@@ -107,6 +150,9 @@ DEFAULT_EDIT = {
     "framing": "fit",   # fit = letterbox over blurred copy | fill = crop to cover | manual = drag + zoom
     "pan_x": 0.5, "pan_y": 0.5,
     "zoom": 1.0, "off_x": 0.0, "off_y": 0.0,
+    # face tracking: when True the export window pans to follow the detected speaker.
+    # "track" holds [(t, pan_x, pan_y), ...] keyframes computed server-side.
+    "tracking": False, "track": None,
     "captions": DEFAULT_STYLE,
 }
 
@@ -157,6 +203,9 @@ def normalize_edit(d: dict | None) -> dict:
     out["zoom"] = _num(d.get("zoom"), 0.25, 6, 1.0)
     out["off_x"] = _num(d.get("off_x"), -1.5, 1.5, 0.0)
     out["off_y"] = _num(d.get("off_y"), -1.5, 1.5, 0.0)
+    out["tracking"] = bool(d.get("tracking", False))
+    track = d.get("track")
+    out["track"] = track if (track is None or isinstance(track, list)) else None
     out["captions"] = normalize_style(d.get("captions"))
     return out
 

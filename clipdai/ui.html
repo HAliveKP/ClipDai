@@ -288,6 +288,7 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
           </div>
           <label class="tools" id="zoomwrap" hidden><span class="lbl">Zoom</span><input type="range" id="zoom" min="0.25" max="4" step="0.01" style="width:110px"><output class="tc" id="zoomv"></output></label>
           <button class="btn ghost sm" id="recenter" type="button" hidden>Recenter</button>
+          <label class="chk"><input type="checkbox" id="trackface"> Track speaker (face)</label>
           <span style="flex:1"></span>
           <label class="chk"><input type="checkbox" id="safe"> Safe zones</label>
           <select id="safep" aria-label="Safe zone platform" style="width:auto;padding:5px 8px;font-size:13px">
@@ -601,6 +602,13 @@ function frameRect(sw,sh,W,H,e){
   if(e.framing==='manual'){const k=fit*e.zoom,w=sw*k,h=sh*k;return [W/2+e.off_x*W-w/2,H/2+e.off_y*H-h/2,w,h]}
   const w=sw*fit,h=sh*fit;return [(W-w)/2,(H-h)/2,w,h];
 }
+function trackingPan(t,e){
+  // mirror of clipdai/layout.tracking_pan: smoothed tracked pan at time t, else static
+  if(!e.tracking||!e.track||!e.track.length)return [e.pan_x??0.5,e.pan_y??0.5];
+  const times=e.track.map(k=>k[0]),xs=e.track.map(k=>k[1]),ys=e.track.map(k=>k[2]);
+  const lerp=(arr,t)=>{let n=arr.length;if(n===1||t<=times[0])return arr[0];if(t>=times[times.length-1])return arr[arr.length-1];let lo=0,hi=n-1;while(hi-lo>1){const m=(lo+hi)>>1;if(t<times[m])hi=m;else lo=m;}const t0=times[lo],t1=times[hi],v0=arr[lo],v1=arr[hi];return t1===t0?v0:v0+(v1-v0)*(t-t0)/(t1-t0);};
+  return [lerp(xs,t),lerp(ys,t)];
+}
 const EMOJI_RE=/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;
 function fontMetrics(st){const f=META.fonts[st.font]||META.fonts.Arial;return f[st.weight>=600?'bold':'regular']}
 function textWidth(text,em,widths){let t=0;for(const ch of text){if(ch in widths)t+=widths[ch];else t+=ch.codePointAt(0)<128?META.consts.unknown_ascii:META.consts.unknown_other}return t*em}
@@ -691,6 +699,7 @@ function buildStaticControls(){
   [['enabled','enabled'],['uppercase','uppercase'],['emoji','emoji']].forEach(([i,k])=>bind(i,k,false));
   $('zoom').addEventListener('input',()=>{ed.edit.zoom=+$('zoom').value;syncControls();setDirty(true)});
   $('recenter').onclick=()=>{ed.edit.off_x=0;ed.edit.off_y=0;ed.edit.pan_x=.5;ed.edit.pan_y=.5;syncControls();setDirty(true)};
+  $('trackface').onchange=()=>{ed.edit.tracking=$('trackface').checked;syncControls();setDirty(true)};
   $('safe').onchange=()=>{uiPrefs.safe=$('safe').checked;savePrefs()};
   $('safep').onchange=()=>{uiPrefs.plat=$('safep').value;savePrefs()};
 }
@@ -715,6 +724,7 @@ function syncControls(){
   for(const k of ['enabled','uppercase','emoji'])$('c-'+k).checked=!!s[k];
   document.querySelectorAll('#p-style fieldset:not(:first-of-type) :is(input,select,button)').forEach(el=>el.disabled=!s.enabled);
   $('safe').checked=uiPrefs.safe;$('safep').value=uiPrefs.plat;$('safep').disabled=!uiPrefs.safe;
+  $('trackface').checked=!!e.tracking;
   const [W,H]=META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
   // keep the canvas element at export ratio; internal resolution capped for speed
   const q=Math.min(1,900/Math.max(W,H));if(cv.width!==Math.round(W*q)||cv.height!==Math.round(H*q)){cv.width=Math.round(W*q);cv.height=Math.round(H*q)}
@@ -832,9 +842,11 @@ function relWords(){return effWords().filter(w=>w[1]>ed.start&&w[0]<ed.end).map(
 function getPages(W,H){if(!pagesCache)pagesCache=layoutPages(relWords(),S(),W,H,ed.end-ed.start);return pagesCache}
 function draw(t){
   const e=ed.edit,[W,H]=META.aspects[e.aspect],q=cv.width/W,sw=ed.src.width,sh=ed.src.height;
+  let ee=e;
+  if(e.tracking&&e.track&&e.track.length){const [px,py]=trackingPan(t,e);ee={...e,pan_x:px,pan_y:py};}
   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);ctx.fillStyle='#000';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(q,0,0,q,0,0);
-  const [x,y,w,h]=frameRect(sw,sh,W,H,e);
+  const [x,y,w,h]=frameRect(sw,sh,W,H,ee);
   const ready=vid.readyState>=2;
   if(ready&&!(x<=0.5&&y<=0.5&&x+w>=W-0.5&&y+h>=H-0.5)){ // blurred background like the export
     const c=Math.max(W/sw,H/sh);ctx.save();ctx.filter=`blur(${34*q}px) brightness(0.92)`;

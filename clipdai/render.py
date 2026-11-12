@@ -10,7 +10,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from . import fontmetrics, layout
+from . import fontmetrics, layout, tracking
 from .highlights import Clip
 from .transcribe import Segment
 from .utils import run
@@ -49,6 +49,17 @@ def video_filter(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
     ow, oh = _even(vx1 - vx0), _even(vy1 - vy0)
     ow, oh = min(ow, W - ox) // 2 * 2 or 2, min(oh, H - oy) // 2 * 2 or 2
     covers = ox <= 0 and oy <= 0 and ox + ow >= W and oy + oh >= H
+    if covers and bool(edit.get("tracking")) and edit.get("track"):
+        # dynamic face-tracked crop: constant crop size, x/y pan over time per keyframes
+        track = edit["track"]
+        free_x = max(sw - cw, 1)
+        free_y = max(sh - ch, 1)
+        times = [float(kf[0]) for kf in track]
+        cx_vals = [min(max(float(kf[1]) * free_x, 0.0), float(free_x)) for kf in track]
+        cy_vals = [min(max(float(kf[2]) * free_y, 0.0), float(free_y)) for kf in track]
+        fg = (f"crop={cw}:{ch}:x={tracking.tracking_expr(times, cx_vals)}:"
+              f"y={tracking.tracking_expr(times, cy_vals)},scale={ow}:{oh}:flags=bicubic,setsar=1")
+        return f"[0:v]{fg}[base]"
     fg = f"crop={cw}:{ch}:{cx0}:{cy0},scale={ow}:{oh}:flags=bicubic,setsar=1"
     if covers:
         return f"[0:v]{fg}[base]"
@@ -65,6 +76,13 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
     edit = layout.normalize_edit(edit)
     W, H = layout.canvas_size(edit["aspect"])
     dur = max(end - start, 0.5)
+    # compute face-tracking keyframes server-side when tracking is requested but none
+    # were supplied (e.g. first export after toggling tracking on in the editor)
+    if edit.get("tracking") and not edit.get("track"):
+        track = tracking.track_keyframes(Path(src), start, end,
+                                         src_size[0], src_size[1], W, H)
+        if track:
+            edit = {**edit, "track": track}
     rel = [(s - start, e - start, t) for s, e, t in words if e > start and s < end]
     style = edit["captions"]
     out.parent.mkdir(parents=True, exist_ok=True)
