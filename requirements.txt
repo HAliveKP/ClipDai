@@ -1,8 +1,19 @@
+# ClipForge runtime dependencies. Also required (not pip): ffmpeg + ffprobe on PATH, built with libass.
+# The editor, caption layout and font measurement use only the Python standard library.
+
+# downloading - Twitch/Kick/YouTube change often: keep this current with `pip install -U yt-dlp`
 yt-dlp>=2025.1.1
+# local speech-to-text with word timestamps (we decode audio ourselves, so any PyAV version works)
 faster-whisper>=1.0.3
+# LLM + posting APIs
 requests>=2.31
 python-dotenv>=1.0
+# loudness analysis and audio buffers
 numpy>=1.24
+
 # only needed if you publish to YouTube directly (PUBLISH_YOUTUBE=youtube)
 google-api-python-client>=2.100
 google-auth-oauthlib>=1.2
+
+# optional: LAYOUT=face (crop around the speaker's face); uncomment or `pip install opencv-python-headless`
+# opencv-python-headless>=4.8
