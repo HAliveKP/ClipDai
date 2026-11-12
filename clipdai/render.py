@@ -1,110 +1,118 @@
-"""Render a 1080x1920 vertical clip with burned-in word-highlight captions (ASS) using ffmpeg."""
+"""Render a clip from its edit state (aspect ratio, framing, caption style) with ffmpeg + libass.
+
+All geometry and caption layout comes from layout.py, which the browser editor mirrors, so the burned-in export
+matches the preview. The chosen font files are copied next to the .ass file and passed with `fontsdir`, so libass
+uses exactly the font whose metrics we measured instead of whatever the system font lookup returns.
+"""
 from __future__ import annotations
 
-import re
 import shutil
 import tempfile
 from pathlib import Path
 
+from . import fontmetrics, layout
 from .highlights import Clip
 from .transcribe import Segment
 from .utils import run
 
-W, H = 1080, 1920
+
+def probe_size(path: Path) -> tuple[int, int]:
+    out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:stream_tags=rotate",
+               "-of", "csv=p=0", str(path)]).stdout.strip().splitlines()[0].split(",")
+    w, h = int(out[0]), int(out[1])
+    if len(out) > 2 and out[2].strip() in ("90", "-90", "270", "-270"):
+        w, h = h, w
+    return w, h
 
 
-def _ass_time(t: float) -> str:
-    t = max(t, 0)
-    return f"{int(t // 3600)}:{int(t // 60) % 60:02d}:{t % 60:05.2f}"
+def words_in(segments: list[Segment], start: float, end: float) -> list[list]:
+    """Transcript words overlapping [start, end] as absolute [s, e, text]."""
+    return [[w.start, w.end, w.text] for seg in segments for w in seg.words if w.end > start and w.start < end]
 
 
-def _clean(w: str) -> str:
-    return re.sub(r"\s+", " ", w.replace("{", "(").replace("}", ")")).strip()
+def _even(v: float) -> int:
+    return max(2, int(round(v / 2)) * 2)
 
 
-def build_ass(segments: list[Segment], start: float, end: float, font: str, size: int, path: Path) -> bool:
-    """Karaoke-style captions: 3-4 words at a time, the active word is highlighted yellow."""
-    words = []
-    for seg in segments:
-        for w in seg.words:
-            if w.end > start and w.start < end and _clean(w.text):
-                words.append((max(w.start, start) - start, min(w.end, end) - start, _clean(w.text)))
-    if not words:
-        return False
-
-    # group into short phrases (<=4 words, break on punctuation or pauses)
-    groups, cur = [], []
-    for i, w in enumerate(words):
-        cur.append(w)
-        gap = (words[i + 1][0] - w[1]) if i + 1 < len(words) else 9
-        if len(cur) >= 4 or re.search(r"[.!?,;:]$", w[2]) or gap > 0.6:
-            groups.append(cur)
-            cur = []
-    if cur:
-        groups.append(cur)
-
-    header = (
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: %d\nPlayResY: %d\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
-        "[V4+ Styles]\n"
-        "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,"
-        "Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,"
-        "MarginV,Encoding\n"
-        f"Style: Default,{font},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6,2,2,60,60,520,1\n\n"
-        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
-    ) % (W, H)
-
-    lines = []
-    for g in groups:
-        for idx, (ws, we, wt) in enumerate(g):
-            # show the whole group while word idx is active; highlight that word
-            st = ws
-            en = g[idx + 1][0] if idx + 1 < len(g) else max(we, ws + 0.15)
-            text = " ".join(
-                (r"{\c&H00FFFF&}" + t.upper() + r"{\c&HFFFFFF&}") if j == idx else t.upper()
-                for j, (_, _, t) in enumerate(g)
-            )
-            lines.append(f"Dialogue: 0,{_ass_time(st)},{_ass_time(en)},Default,,0,0,0,,{text}")
-    path.write_text(header + "\n".join(lines) + "\n", encoding="utf-8")
-    return True
+def video_filter(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
+    """filter_complex producing [base] at WxH from input 0, framed per edit."""
+    x, y, w, h = layout.frame_rect(sw, sh, W, H, edit)
+    k = w / sw
+    vx0, vy0, vx1, vy1 = max(0.0, x), max(0.0, y), min(float(W), x + w), min(float(H), y + h)
+    if vx1 - vx0 < 2 or vy1 - vy0 < 2:  # source dragged fully off-canvas: show only the blurred background
+        vx0, vy0, vx1, vy1 = x, y, x + 2, y + 2
+    # visible part of the source, in source pixels
+    cx0, cy0 = max(0, int((vx0 - x) / k)), max(0, int((vy0 - y) / k))
+    cw = min(sw - cx0, max(2, int(round((vx1 - vx0) / k))))
+    ch = min(sh - cy0, max(2, int(round((vy1 - vy0) / k))))
+    ox, oy = int(round(vx0)), int(round(vy0))
+    ow, oh = _even(vx1 - vx0), _even(vy1 - vy0)
+    ow, oh = min(ow, W - ox) // 2 * 2 or 2, min(oh, H - oy) // 2 * 2 or 2
+    covers = ox <= 0 and oy <= 0 and ox + ow >= W and oy + oh >= H
+    fg = f"crop={cw}:{ch}:{cx0}:{cy0},scale={ow}:{oh}:flags=bicubic,setsar=1"
+    if covers:
+        return f"[0:v]{fg}[base]"
+    bw, bh = _even(W / 4), _even(H / 4)
+    return (f"[0:v]split=2[a][b];"
+            f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=8:3,"
+            f"eq=brightness=-0.08,scale={W}:{H},setsar=1[bg];"
+            f"[b]{fg}[fg];[bg][fg]overlay={ox}:{oy}[base]")
 
 
-def render_clip(src: Path, clip: Clip, segments: list[Segment], out: Path, layout: str = "blur",
-                crop_x: float = 0.5, font: str = "Arial", size: int = 78, captions: bool = True) -> Path:
+def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, words: list, edit: dict,
+                out: Path) -> Path:
+    """words: absolute [s, e, text] (source time). edit: layout.normalize_edit() output."""
+    edit = layout.normalize_edit(edit)
+    W, H = layout.canvas_size(edit["aspect"])
+    dur = max(end - start, 0.5)
+    rel = [(s - start, e - start, t) for s, e, t in words if e > start and s < end]
+    style = edit["captions"]
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         tdir = Path(td)
-        has_caps = captions and build_ass(segments, clip.start, clip.end, font, size, tdir / "caps.ass")
-
-        if layout == "crop":
-            # fill the 9:16 frame: scale to height, crop width around crop_x
-            base = (f"[0:v]scale=-2:{H},crop={W}:{H}:'max(0,min(iw-{W},(iw-{W})*{crop_x:.3f}))':0,setsar=1[bg]")
-        else:
-            # blurred, zoomed copy as background + the full (uncropped) video centered on top
-            base = (
-                f"[0:v]split=2[a][b];"
-                f"[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=30:5,eq=brightness=-0.08[bgs];"
-                f"[b]scale={W}:-2:force_original_aspect_ratio=decrease[fg];"
-                f"[bgs][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[bg]"
-            )
-        vf = base
-        last = "bg"
-        if has_caps:
-            vf += f";[{last}]subtitles=caps.ass[vout]"
+        vf = video_filter(src_size[0], src_size[1], W, H, edit)
+        last = "base"
+        ass = layout.build_ass(rel, style, W, H, dur)
+        if ass:
+            (tdir / "caps.ass").write_text(ass, encoding="utf-8")
+            fdir = tdir / "fonts"
+            fdir.mkdir()
+            for name in set(fontmetrics.FONTS.get(style["font"], ())):
+                f = fontmetrics._find(name)
+                if f:
+                    shutil.copy(f, fdir / f.name)
+            vf += ";[base]subtitles=caps.ass:fontsdir=fonts[vout]"
             last = "vout"
-        fade_out = max(clip.duration - 0.25, 0)
+        fade_out = max(dur - 0.25, 0)
         af = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
-
         cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-ss", f"{clip.start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{clip.duration:.3f}",
+            "-ss", f"{start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{dur:.3f}",
             "-filter_complex", vf, "-map", f"[{last}]", "-map", "0:a:0?",
             "-af", af,
             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
             "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
             str(out.resolve()),
         ]
-        run(cmd, cwd=tdir)  # cwd=tmp so the subtitles filter finds caps.ass without path escaping
+        run(cmd, cwd=tdir)  # cwd=tmp so the subtitles filter finds caps.ass/fonts without path escaping
     return out
+
+
+def default_edit(layout_name: str = "blur", crop_x: float = 0.5, font: str = "Arial", size: int = 78) -> dict:
+    """Edit state equivalent to the LAYOUT / CROP_X / CAPTION_* settings."""
+    framing = "fill" if layout_name in ("crop", "face") else "fit"
+    return layout.normalize_edit({"framing": framing, "pan_x": crop_x,
+                                  "captions": {**layout.DEFAULT_STYLE, "font": font, "size": size}})
+
+
+def render_clip(src: Path, clip: Clip, segments: list[Segment], out: Path, layout_name: str = "blur",
+                crop_x: float = 0.5, font: str = "Arial", size: int = 78, captions: bool = True,
+                edit: dict | None = None) -> Path:
+    """Backwards-compatible entry point used by the pipeline on first render."""
+    edit = layout.normalize_edit(edit or default_edit(layout_name, crop_x, font, size))
+    if not captions:
+        edit["captions"]["enabled"] = False
+    return render_edit(src, probe_size(src), clip.start, clip.end, words_in(segments, clip.start, clip.end), edit, out)
 
 
 def make_thumbnail(video: Path, out: Path, at: float = 1.0) -> Path:

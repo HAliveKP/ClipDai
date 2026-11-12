@@ -10,7 +10,7 @@ from .utils import log, parse_time
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="clipforge", description="Turn streams & long videos into posted short clips.")
+    ap = argparse.ArgumentParser(prog="clipdai", description="Turn streams & long videos into posted short clips.")
     ap.add_argument("--env", help="path to .env (default ./.env)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> None:
         n = pipeline.process_source(s, db, a.url, parse_time(a.start), parse_time(a.end), a.n)
         log(f"{n} clips in {s.clips_dir}")
         if not s.auto_approve and n:
-            log("Review them with `python -m clipforge serve`, or `python -m clipforge approve all`")
+            log("Review them with `python -m clipdai serve`, or `python -m clipdai approve all`")
     elif a.cmd == "watch":
         if not a.url:
             for w in db.watches():
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> None:
             db.del_watch(a.url)
         else:
             db.add_watch(a.url)
-            log(f"watching {a.url}. Run `python -m clipforge daemon` (or `serve`) to keep it going.")
+            log(f"watching {a.url}. Run `python -m clipdai daemon` (or `serve`) to keep it going.")
     elif a.cmd == "daemon":
         log("daemon started (Ctrl+C to stop)")
         last_watch = 0.0

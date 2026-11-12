@@ -30,13 +30,31 @@ def extract_audio(video: Path, wav: Path) -> Path:
     return wav
 
 
+def _read_wav(wav: Path):
+    """16 kHz mono s16le wav (from extract_audio) -> float32 numpy array in [-1, 1]."""
+    import wave
+
+    import numpy as np
+
+    with wave.open(str(wav), "rb") as f:
+        if f.getframerate() != 16000 or f.getnchannels() != 1 or f.getsampwidth() != 2:
+            raise ValueError(f"{wav}: expected 16 kHz mono 16-bit PCM")
+        data = f.readframes(f.getnframes())
+    return np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def load_cached(video: Path, work_dir: Path) -> list[Segment] | None:
+    cache = work_dir / f"{video.stem}.transcript.json"
+    return _load(cache) if cache.exists() else None
+
+
 def _load(path: Path) -> list[Segment]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     return [Segment(s["start"], s["end"], s["text"], [Word(**w) for w in s["words"]]) for s in raw]
 
 
 def transcribe(video: Path, work_dir: Path, model_size: str = "small", device: str = "auto",
-               language: str | None = None) -> tuple[list[Segment], Path]:
+               language: str | None = None, progress=None) -> tuple[list[Segment], Path]:
     """Returns (segments, wav_path). Cached next to the video in work_dir."""
     work_dir.mkdir(parents=True, exist_ok=True)
     cache = work_dir / f"{video.stem}.transcript.json"
@@ -50,7 +68,9 @@ def transcribe(video: Path, work_dir: Path, model_size: str = "small", device: s
 
     log(f"[transcribe] whisper model={model_size} device={device} (first run downloads the model)")
     model = WhisperModel(model_size, device=device, compute_type="auto")
-    seg_iter, info = model.transcribe(str(wav), word_timestamps=True, vad_filter=True, language=language)
+    # Pass decoded samples instead of a path: faster-whisper's own decoder (PyAV) breaks on newer `av` releases
+    # (`metadata_errors` kwarg was removed), and our wav is already 16 kHz mono PCM, which is what Whisper wants.
+    seg_iter, info = model.transcribe(_read_wav(wav), word_timestamps=True, vad_filter=True, language=language)
     total = max(info.duration, 1)
     segments: list[Segment] = []
     last_pct = -1
@@ -61,5 +81,7 @@ def transcribe(video: Path, work_dir: Path, model_size: str = "small", device: s
         if pct != last_pct and pct % 10 == 0:
             log(f"[transcribe] {pct}%")
             last_pct = pct
+        if progress:
+            progress(f"transcribing {min(pct, 99)}%")
     cache.write_text(json.dumps([asdict(s) for s in segments]), encoding="utf-8")
     return segments, wav

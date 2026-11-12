@@ -15,7 +15,14 @@ class LLMError(Exception):
 def _post(url: str, headers: dict | None, body: dict, timeout: int = 180, retries: int = 4) -> dict:
     delay = 6
     for attempt in range(retries):
-        r = requests.post(url, headers=headers, json=body, timeout=timeout)
+        try:
+            r = requests.post(url, headers=headers, json=body, timeout=timeout)
+        except (requests.ConnectionError, requests.Timeout) as e:  # dropped/reset connection: transient, retry
+            if attempt == retries - 1:
+                raise LLMError(f"network error: {e}") from e
+            time.sleep(delay)
+            delay *= 2
+            continue
         if r.status_code in (429, 500, 502, 503) and attempt < retries - 1:
             time.sleep(delay)  # free tiers rate-limit: back off and retry
             delay *= 2

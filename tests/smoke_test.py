@@ -11,9 +11,9 @@ os.environ.update({"DATA_DIR": str(tmp / "data"), "POST_TIMES": "10:00,14:00", "
                    "PUBLISHER": "manual"})
 
 from datetime import timedelta
-from clipforge import config, highlights, pipeline, render
-from clipforge.db import DB
-from clipforge.transcribe import Segment, Word, extract_audio
+from clipdai import config, highlights, pipeline, render
+from clipdai.db import DB
+from clipdai.transcribe import Segment, Word, extract_audio
 
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=70",
                 "-f", "lavfi", "-i", "sine=frequency=300:duration=70", "-shortest", "-c:v", "libx264",

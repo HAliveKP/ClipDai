@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -37,4 +38,9 @@ def run(cmd: list[str], cwd: str | Path | None = None) -> subprocess.CompletedPr
 
 
 def log(msg: str) -> None:
-    print(msg, flush=True)
+    # Windows consoles/redirected logs often use a legacy codepage; an emoji in a video title must never crash a job
+    try:
+        print(msg, flush=True)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(msg.encode(enc, "replace").decode(enc), flush=True)

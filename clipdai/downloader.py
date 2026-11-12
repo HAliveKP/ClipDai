@@ -26,7 +26,7 @@ def _probe_duration(path: Path) -> float:
 
 
 def download(url: str, out_dir: Path, max_height: int = 1080,
-             start: float | None = None, end: float | None = None) -> SourceVideo:
+             start: float | None = None, end: float | None = None, progress=None) -> SourceVideo:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     local = Path(url).expanduser()
@@ -51,6 +51,15 @@ def download(url: str, out_dir: Path, max_height: int = 1080,
         "concurrent_fragment_downloads": 4,
         "windowsfilenames": True,
     }
+    if progress:
+        def _hook(d):
+            if d.get("status") == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                if total:
+                    progress(f"downloading {min(99, int(d.get('downloaded_bytes', 0) * 100 / total))}%")
+            elif d.get("status") == "finished":
+                progress("downloading: merging")
+        opts["progress_hooks"] = [_hook]
     if start is not None or end is not None:
         opts["download_ranges"] = download_range_func(None, [(start or 0, end or 10**7)])
         opts["force_keyframes_at_cuts"] = True

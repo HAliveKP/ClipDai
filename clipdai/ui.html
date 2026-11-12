@@ -5,129 +5,938 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ClipForge</title>
 <style>
-:root{--bg:#0e1116;--panel:#171b22;--line:#262c36;--text:#e8ecf2;--mute:#8a94a6;--acc:#ff5a36;--ok:#2fbf71;--warn:#e5a23a;--bad:#e5534b}
-@media (prefers-color-scheme: light){:root{--bg:#f5f6f8;--panel:#fff;--line:#dfe3ea;--text:#171b22;--mute:#667085}}
+:root{
+  --bg:#0d1015;--panel:#151a21;--panel2:#1b212a;--line:#272e39;--line2:#343c49;--text:#e9edf3;--mute:#8c96a8;
+  --acc:#ff5a36;--acc-h:#ff7352;--acc-a:#e8461f;--acc-ink:#fff;--ok:#2fbf71;--warn:#e5a23a;--bad:#ef5b52;--info:#6db0ff;
+  --tag-warn-bg:#3a2e12;--tag-ok-bg:#12301f;--tag-bad-bg:#3a1816;--tag-info-bg:#16283d;--tag-mute-bg:#232933;
+  --focus:#7cb7ff;--shadow:0 10px 30px rgba(0,0,0,.35);--r:10px;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#f4f5f8;--panel:#fff;--panel2:#f7f8fa;--line:#dfe3ea;--line2:#cfd5df;--text:#161b22;--mute:#5d6778;
+  --tag-warn-bg:#fdf0d5;--tag-ok-bg:#dcf5e7;--tag-bad-bg:#fde2df;--tag-info-bg:#dfedff;--tag-mute-bg:#eceff3;
+  --warn:#9a6500;--ok:#167a45;--bad:#c0362d;--info:#1f63b8;--focus:#1f63b8;--shadow:0 10px 30px rgba(20,30,50,.15);
+}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
-h1{font-size:18px;margin:0;letter-spacing:.2px}h1 b{color:var(--acc)}
-.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--panel);border:1px solid var(--line);color:var(--mute)}
-main{max-width:1280px;margin:0 auto;padding:20px}
-.bar{display:flex;gap:8px;flex-wrap:wrap}
-input,textarea{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;width:100%}
-input:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:-1px}
-button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
-button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
-button.ok{background:var(--ok)}button.bad{background:transparent;color:var(--bad);border:1px solid var(--bad)}
-button:disabled{opacity:.5;cursor:default}
-.row{display:grid;grid-template-columns:1fr 130px 130px auto;gap:8px;margin-bottom:8px}
-@media(max-width:700px){.row{grid-template-columns:1fr 1fr}.row input:first-child{grid-column:1/3}}
-h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:26px 0 10px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
-.card video{width:100%;aspect-ratio:9/16;max-height:440px;background:#000;object-fit:contain}
-.card .body{padding:12px;display:flex;flex-direction:column;gap:8px}
-.meta{display:flex;justify-content:space-between;font-size:12px;color:var(--mute)}
-.score{color:var(--acc);font-weight:700}
-textarea{min-height:64px;resize:vertical}
-.btns{display:flex;gap:8px}.btns button{flex:1}
-.tag{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600}
-.t-pending{background:#3a2e12;color:var(--warn)}.t-approved{background:#12301f;color:var(--ok)}.t-rejected{background:#3a1816;color:var(--bad)}
-.t-new,.t-working{background:#16283d;color:#6db0ff}.t-done{background:#12301f;color:var(--ok)}.t-error{background:#3a1816;color:var(--bad)}.t-skipped{background:var(--line);color:var(--mute)}
-.t-queued{background:#16283d;color:#6db0ff}.t-failed{background:#3a1816;color:var(--bad)}
-table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mute);font-weight:600}
-.empty{color:var(--mute);padding:30px;text-align:center;border:1px dashed var(--line);border-radius:12px}
-.err{color:var(--bad);font-size:12px}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}@media(max-width:900px){.two{grid-template-columns:1fr}}
+[hidden]{display:none!important}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+a{color:var(--info)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* ---------- header / stepper ---------- */
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.hwrap{max-width:1320px;margin:0 auto;padding:10px 20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+h1{font-size:19px;margin:0;letter-spacing:.2px;white-space:nowrap}h1 b{color:var(--acc)}
+.steps{display:flex;gap:4px;list-style:none;margin:0;padding:0;flex:1;min-width:0;overflow-x:auto}
+.steps a{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:99px;color:var(--mute);text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap}
+.steps a:hover{background:var(--panel)}
+.steps .n{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;border:1.5px solid currentColor;font-size:11px}
+.steps a[aria-current="step"]{color:var(--text);background:var(--panel)}
+.steps a[aria-current="step"] .n{background:var(--acc);border-color:var(--acc);color:#fff}
+.steps a.done .n{background:var(--ok);border-color:var(--ok);color:#fff}
+.pills{display:flex;gap:6px;flex-wrap:wrap}
+.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--panel);border:1px solid var(--line);color:var(--mute);white-space:nowrap}
+.pill.bad{color:var(--bad);border-color:var(--bad)}
+.banner{display:none;background:var(--tag-bad-bg);color:var(--bad);text-align:center;padding:7px;font-size:13px;font-weight:600}
+.banner.show{display:block}
+
+main{max-width:1320px;margin:0 auto;padding:22px 20px 80px}
+section{margin-bottom:34px}
+.sh{display:flex;align-items:baseline;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--mute);margin:0;font-weight:700}
+h2 .n{color:var(--acc);margin-right:6px}
+.hint{color:var(--mute);font-size:13px}
+
+/* ---------- controls ---------- */
+input,textarea,select{background:var(--panel);color:var(--text);border:1px solid var(--line2);border-radius:8px;padding:9px 11px;font:inherit;width:100%;min-width:0}
+input:hover,textarea:hover,select:hover{border-color:var(--mute)}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--focus);outline-offset:-1px;border-color:transparent}
+input[aria-invalid="true"]{border-color:var(--bad)}
+input[type=range]{padding:0;border:0;background:transparent;accent-color:var(--acc)}
+input[type=color]{padding:2px;height:36px;width:48px;cursor:pointer}
+input[type=checkbox]{width:auto;accent-color:var(--acc);margin:0}
+textarea{min-height:60px;resize:vertical}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute);font-weight:600}
+.btn{--b:var(--acc);--bh:var(--acc-h);--ba:var(--acc-a);display:inline-flex;align-items:center;justify-content:center;gap:7px;background:var(--b);color:var(--acc-ink);
+  border:1px solid transparent;border-radius:8px;padding:9px 16px;font:inherit;font-weight:650;cursor:pointer;white-space:nowrap;transition:background .12s,transform .06s,border-color .12s;text-decoration:none;line-height:1.3}
+.btn:hover{background:var(--bh)}.btn:active{background:var(--ba);transform:translateY(1px)}
+.btn.ok{--b:var(--ok);--bh:#38d07f;--ba:#26a862}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--line2)}
+.btn.ghost:hover{background:var(--panel2);border-color:var(--mute)}.btn.ghost:active{background:var(--line)}
+.btn.danger{background:transparent;color:var(--bad);border-color:color-mix(in srgb,var(--bad) 60%,transparent)}
+.btn.danger:hover{background:var(--tag-bad-bg)}
+.btn.sm{padding:5px 10px;font-size:13px;border-radius:7px}
+.btn.lg{padding:12px 22px;font-size:16px}
+.btn:disabled,.btn[aria-disabled="true"]{opacity:.45;cursor:not-allowed;transform:none}
+.btn.ghost:disabled:hover{background:transparent;border-color:var(--line2)}
+.btn[aria-busy="true"]{position:relative;color:transparent!important;pointer-events:none}
+.btn[aria-busy="true"]::after{content:"";position:absolute;width:16px;height:16px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;animation:spin .7s linear infinite}
+.btn.ghost[aria-busy="true"]::after,.btn.danger[aria-busy="true"]::after{border-color:var(--text);border-right-color:transparent}
+@keyframes spin{to{transform:rotate(360deg)}}
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;flex-wrap:wrap}
+.seg button{background:transparent;color:var(--text);border:0;border-right:1px solid var(--line2);padding:6px 11px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--panel2)}
+.seg button[aria-pressed="true"]{background:var(--acc);color:#fff}
+
+/* ---------- paste ---------- */
+.paste{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.prow{display:grid;grid-template-columns:1fr 140px 140px auto;gap:10px;align-items:end}
+@media(max-width:820px){.prow{grid-template-columns:1fr 1fr}.prow .wide{grid-column:1/-1}.prow .btn{grid-column:1/-1}}
+.inline-msg{font-size:13px;margin-top:8px;min-height:1px}
+.inline-msg.err{color:var(--bad)}
+.inline-msg .btn{margin-left:8px}
+
+.two{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;margin-top:18px}@media(max-width:960px){.two{grid-template-columns:1fr}}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.box h3{margin:0 0 8px;font-size:13px;color:var(--mute);text-transform:uppercase;letter-spacing:.07em}
+.list{display:flex;flex-direction:column}
+.li{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.li:first-child{border-top:0}
+.li .grow{flex:1;min-width:0}
+.li .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .sub{font-size:12px;color:var(--mute)}
+.li .sub.err{color:var(--bad);white-space:normal}
+.prog{height:4px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:5px}
+.prog i{display:block;height:100%;background:var(--acc);border-radius:4px;transition:width .4s}
+.prog.ind i{width:35%!important;animation:ind 1.2s ease-in-out infinite}
+@keyframes ind{0%{margin-left:-35%}100%{margin-left:100%}}
+details.box summary{cursor:pointer;font-weight:600;font-size:14px;list-style:none;display:flex;align-items:center;gap:8px}
+details.box summary::before{content:"▸";color:var(--mute);transition:transform .15s}
+details.box[open] summary::before{transform:rotate(90deg)}
+details.box summary::-webkit-details-marker{display:none}
+.wrow{display:flex;gap:8px;margin:10px 0 4px}
+
+/* ---------- tags ---------- */
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:700;text-transform:capitalize;white-space:nowrap}
+.t-pending{background:var(--tag-warn-bg);color:var(--warn)}
+.t-approved,.t-done{background:var(--tag-ok-bg);color:var(--ok)}
+.t-rejected,.t-error,.t-failed{background:var(--tag-bad-bg);color:var(--bad)}
+.t-new,.t-working,.t-queued{background:var(--tag-info-bg);color:var(--info)}
+.t-skipped{background:var(--tag-mute-bg);color:var(--mute)}
+
+/* ---------- review grid ---------- */
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs button{background:transparent;border:1px solid transparent;color:var(--mute);padding:5px 12px;border-radius:99px;font:inherit;font-size:13px;font-weight:650;cursor:pointer}
+.tabs button:hover{color:var(--text);background:var(--panel)}
+.tabs button[aria-selected="true"]{color:var(--text);background:var(--panel);border-color:var(--line2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s}
+.card:hover{border-color:var(--line2)}
+.card.dirty{border-color:var(--warn)}
+.vwrap{position:relative;background:#000;display:grid;place-items:center;aspect-ratio:9/16;max-height:460px}
+.vwrap video{width:100%;height:100%;object-fit:contain;display:block}
+.vwrap .rs{position:absolute;inset:auto 8px 8px 8px;background:rgba(0,0,0,.75);color:#fff;font-size:12px;padding:6px 9px;border-radius:8px;display:none;align-items:center;gap:8px}
+.vwrap .rs.show{display:flex}
+.vwrap .rs.err{background:rgba(120,20,15,.9)}
+.spin{width:12px;height:12px;border-radius:50%;border:2px solid #fff;border-right-color:transparent;animation:spin .7s linear infinite;flex:none}
+.card .body{padding:12px;display:flex;flex-direction:column;gap:8px;flex:1}
+.meta{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mute);align-items:center}
+.score{color:var(--acc);font-weight:800}
+.reason{font-size:12px;color:var(--mute);font-style:italic}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}.btns .btn{flex:1}
+.unsaved{font-size:11px;color:var(--warn);font-weight:700;display:none}
+.card.dirty .unsaved{display:inline}
+.empty{color:var(--mute);padding:28px;text-align:center;border:1px dashed var(--line2);border-radius:12px;font-size:14px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+th{color:var(--mute);font-weight:650;font-size:12px}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+
+/* ---------- toasts ---------- */
+#toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:100;max-width:min(420px,calc(100vw - 32px))}
+.toast{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--info);box-shadow:var(--shadow);padding:10px 12px;border-radius:9px;font-size:14px;display:flex;gap:10px;align-items:flex-start;animation:tin .18s ease-out}
+.toast.ok{border-left-color:var(--ok)}.toast.err{border-left-color:var(--bad)}
+.toast .x{margin-left:auto;background:none;border:0;color:var(--mute);cursor:pointer;font-size:16px;line-height:1}
+@keyframes tin{from{transform:translateY(8px);opacity:0}}
+
+/* ---------- editor ---------- */
+dialog#ed{width:min(1280px,100vw);height:min(900px,100vh);max-width:100vw;max-height:100vh;padding:0;border:1px solid var(--line2);border-radius:14px;background:var(--bg);color:var(--text);box-shadow:var(--shadow)}
+dialog#ed::backdrop{background:rgba(0,0,0,.6)}
+@media(max-width:700px){dialog#ed{border-radius:0;height:100vh}}
+.ed{display:grid;grid-template-rows:auto 1fr auto;height:100%}
+.edh{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.edh h2{text-transform:none;letter-spacing:0;color:var(--text);font-size:16px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edb{display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:0}
+@media(max-width:960px){.edb{grid-template-columns:1fr;overflow:auto}}
+.stage{display:flex;flex-direction:column;gap:10px;padding:14px;min-height:0;min-width:0}
+.tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tools .lbl{font-size:12px;color:var(--mute);font-weight:650}
+.cv{flex:1;min-height:260px;display:grid;place-items:center;background:repeating-conic-gradient(var(--panel) 0 25%,var(--panel2) 0 50%) 0 0/22px 22px;border-radius:12px;position:relative;overflow:hidden}
+.cv canvas{position:absolute;box-shadow:0 4px 24px rgba(0,0,0,.4);touch-action:none;background:#000}
+.cv canvas.grab{cursor:grab}.cv canvas.grabbing{cursor:grabbing}.cv canvas.ns{cursor:ns-resize}
+.cv .loading{position:absolute;color:var(--mute);font-size:14px;display:flex;gap:8px;align-items:center}
+.transport{display:flex;gap:10px;align-items:center}
+.transport input{flex:1}
+.tc{font-variant-numeric:tabular-nums;font-size:13px;color:var(--mute);white-space:nowrap}
+.side{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+@media(max-width:960px){.side{border-left:0;border-top:1px solid var(--line)}}
+.side [role=tablist]{display:flex;border-bottom:1px solid var(--line);padding:0 8px}
+.side [role=tab]{background:none;border:0;border-bottom:2px solid transparent;color:var(--mute);padding:10px 12px;font:inherit;font-weight:650;font-size:14px;cursor:pointer}
+.side [role=tab]:hover{color:var(--text)}
+.side [role=tab][aria-selected="true"]{color:var(--text);border-bottom-color:var(--acc)}
+.panel{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:14px;flex:1;min-height:0}
+.panel[hidden]{display:none}
+fieldset{border:1px solid var(--line);border-radius:10px;padding:10px 12px 12px;margin:0;display:flex;flex-direction:column;gap:10px}
+legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;padding:0 4px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.rng{display:grid;grid-template-columns:1fr 46px;gap:8px;align-items:center}
+.rng output{font-size:12px;color:var(--mute);text-align:right;font-variant-numeric:tabular-nums}
+.chk{display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer}
+.colors{display:flex;gap:12px;flex-wrap:wrap}
+.colors label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mute);font-weight:600}
+.words{display:flex;flex-direction:column;gap:4px}
+.wr{display:grid;grid-template-columns:64px 64px 1fr 28px;gap:6px;align-items:center;padding:2px;border-radius:6px}
+.wr input{padding:5px 7px;font-size:13px}
+.wr.cur{background:var(--tag-warn-bg)}
+.wr .del{background:none;border:0;color:var(--mute);cursor:pointer;font-size:16px;border-radius:6px;height:28px}
+.wr .del:hover{color:var(--bad);background:var(--tag-bad-bg)}
+.edf{display:flex;gap:10px;align-items:center;padding:10px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.edf .grow{flex:1}
+.presetrow{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.presetrow select{flex:1;min-width:140px}
+.note{font-size:12px;color:var(--mute)}
 </style>
 </head>
 <body>
 <header>
-  <h1>Clip<b>Forge</b></h1>
-  <span class="pill" id="p-llm"></span><span class="pill" id="p-mode"></span><span class="pill" id="p-route"></span>
+  <div class="hwrap">
+    <h1>Clip<b>Forge</b></h1>
+    <nav aria-label="Workflow"><ol class="steps" id="steps">
+      <li><a href="#s-paste" data-step="1"><span class="n">1</span>Paste link</a></li>
+      <li><a href="#s-review" data-step="2"><span class="n">2</span>Review clips</a></li>
+      <li><a href="#s-review" data-step="3"><span class="n">3</span>Edit</a></li>
+      <li><a href="#s-queue" data-step="4"><span class="n">4</span>Export &amp; post</a></li>
+    </ol></nav>
+    <div class="pills" id="pills" aria-label="Configuration"></div>
+  </div>
+  <div class="banner" id="offline" role="alert">Can't reach the ClipForge server. Is <code>python -m clipdai serve</code> running? Retrying…</div>
 </header>
+
 <main>
-  <h2 style="margin-top:0">1 · Paste a link — it downloads and clips by itself</h2>
-  <div class="row">
-    <input id="url" placeholder="Twitch / Kick / YouTube VOD or any video link (or a file path)">
-    <input id="start" placeholder="start (optional) 1:20:00">
-    <input id="end" placeholder="end (optional)">
-    <button id="add">Make clips</button>
-  </div>
-  <div id="addmsg" class="err"></div>
+  <!-- 1. paste -->
+  <section id="s-paste" aria-labelledby="h-paste">
+    <div class="sh"><h2 id="h-paste"><span class="n">1</span>Paste a link</h2><span class="hint">Twitch, Kick, YouTube or anything yt-dlp supports. It downloads, transcribes and suggests clips by itself.</span></div>
+    <form class="paste" id="addform" novalidate>
+      <div class="prow">
+        <label class="f wide">Video link or file path<input id="url" name="url" autocomplete="off" placeholder="https://www.twitch.tv/videos/…" required></label>
+        <label class="f">Start <span class="sr">(optional)</span><input id="start" placeholder="optional, e.g. 1:20:00" inputmode="numeric" aria-describedby="addmsg"></label>
+        <label class="f">End <span class="sr">(optional)</span><input id="end" placeholder="optional" inputmode="numeric" aria-describedby="addmsg"></label>
+        <button class="btn lg" id="add" type="submit">Make clips</button>
+      </div>
+      <div class="inline-msg" id="addmsg" aria-live="polite"></div>
+    </form>
 
-  <div class="two">
-    <div>
-      <h2>Auto-download · watched channels</h2>
-      <div class="bar" style="margin-bottom:8px"><input id="wurl" placeholder="https://www.twitch.tv/streamer  ·  YouTube channel  ·  Kick channel" style="flex:1">
-        <button class="ghost" id="wadd">Watch</button></div>
-      <div id="watches"></div>
+    <div class="two">
+      <div class="box">
+        <h3>Processing</h3>
+        <div id="sources" class="list"></div>
+      </div>
+      <details class="box" id="watchbox">
+        <summary>Auto-clip new VODs from channels <span class="hint" id="wcount"></span></summary>
+        <form class="wrow" id="watchform" novalidate>
+          <label class="sr" for="wurl">Channel link</label>
+          <input id="wurl" placeholder="https://www.twitch.tv/streamer or YouTube / Kick channel" autocomplete="off">
+          <button class="btn ghost" id="wadd" type="submit">Watch</button>
+        </form>
+        <div class="inline-msg" id="wmsg" aria-live="polite"></div>
+        <div id="watches" class="list"></div>
+      </details>
     </div>
-    <div>
-      <h2>Sources</h2>
-      <div id="sources"></div>
+  </section>
+
+  <!-- 2+3. review / edit -->
+  <section id="s-review" aria-labelledby="h-review">
+    <div class="sh"><h2 id="h-review"><span class="n">2</span>Review &amp; edit clips</h2>
+      <div class="tabs" role="tablist" aria-label="Filter clips" id="ftabs">
+        <button role="tab" data-f="pending" aria-selected="true">To review</button>
+        <button role="tab" data-f="approved" aria-selected="false">Approved</button>
+        <button role="tab" data-f="rejected" aria-selected="false">Rejected</button>
+        <button role="tab" data-f="all" aria-selected="false">All</button>
+      </div>
     </div>
-  </div>
+    <div id="clips" class="grid" aria-live="off"></div>
+  </section>
 
-  <h2>2 · Review clips</h2>
-  <div id="clips" class="grid"></div>
-
-  <h2>3 · Posting queue</h2>
-  <div id="jobs"></div>
+  <!-- 4. queue -->
+  <section id="s-queue" aria-labelledby="h-queue">
+    <div class="sh"><h2 id="h-queue"><span class="n">4</span>Export &amp; posting queue</h2><span class="hint" id="qhint"></span></div>
+    <div id="jobs"></div>
+  </section>
 </main>
+
+<!-- ======================= editor ======================= -->
+<dialog id="ed" aria-labelledby="ed-title">
+  <div class="ed">
+    <div class="edh">
+      <h2 id="ed-title">Edit clip</h2>
+      <span class="unsaved" id="ed-dirty" style="display:none">Unsaved changes</span>
+      <button class="btn ghost sm" id="ed-close" type="button" aria-label="Close editor">✕ Close</button>
+    </div>
+    <div class="edb">
+      <div class="stage">
+        <div class="tools">
+          <span class="lbl" id="l-aspect">Aspect</span>
+          <div class="seg" id="aspect" role="group" aria-labelledby="l-aspect"></div>
+          <span class="lbl" id="l-frame">Framing</span>
+          <div class="seg" id="framing" role="group" aria-labelledby="l-frame">
+            <button type="button" data-v="fit" title="Whole video, blurred background fills the rest">Fit</button>
+            <button type="button" data-v="fill" title="Crop to fill the frame. Drag to choose what stays in view">Fill</button>
+            <button type="button" data-v="manual" title="Drag to move, scroll or use the slider to zoom">Manual</button>
+          </div>
+          <label class="tools" id="zoomwrap" hidden><span class="lbl">Zoom</span><input type="range" id="zoom" min="0.25" max="4" step="0.01" style="width:110px"><output class="tc" id="zoomv"></output></label>
+          <button class="btn ghost sm" id="recenter" type="button" hidden>Recenter</button>
+          <span style="flex:1"></span>
+          <label class="chk"><input type="checkbox" id="safe"> Safe zones</label>
+          <select id="safep" aria-label="Safe zone platform" style="width:auto;padding:5px 8px;font-size:13px">
+            <option value="all">All platforms</option><option value="tiktok">TikTok</option><option value="reels">Reels</option><option value="shorts">Shorts</option>
+          </select>
+        </div>
+        <div class="cv" id="cvwrap"><canvas id="cv" aria-label="Clip preview. Drag the captions to move them; drag the video to reposition it in Fill or Manual framing."></canvas><div class="loading" id="cvload"><span class="spin"></span>Loading source video…</div></div>
+        <div class="transport">
+          <button class="btn ghost sm" id="play" type="button" aria-label="Play">▶</button>
+          <input type="range" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="Playhead">
+          <span class="tc" id="tc">0:00 / 0:00</span>
+          <label class="chk"><input type="checkbox" id="loop" checked> Loop</label>
+        </div>
+        <div class="note" id="dims"></div>
+      </div>
+      <div class="side">
+        <div role="tablist" aria-label="Editor panels">
+          <button role="tab" id="tab-style" aria-controls="p-style" aria-selected="true">Captions</button>
+          <button role="tab" id="tab-text" aria-controls="p-text" aria-selected="false">Text &amp; timing</button>
+          <button role="tab" id="tab-clip" aria-controls="p-clip" aria-selected="false">Trim</button>
+        </div>
+        <div class="panel" id="p-style" role="tabpanel" aria-labelledby="tab-style">
+          <fieldset><legend>Style presets</legend>
+            <div class="presetrow">
+              <label class="f" style="flex:1">Preset<select id="preset"></select></label>
+              <button class="btn ghost sm" id="pdel" type="button">Delete</button>
+            </div>
+            <div class="presetrow">
+              <label class="f" style="flex:1">Save current style as<input id="pname" maxlength="40" placeholder="My style"></label>
+              <button class="btn ghost sm" id="psave" type="button">Save preset</button>
+            </div>
+            <button class="btn ghost sm" id="papply" type="button">Apply this style to all clips…</button>
+          </fieldset>
+          <label class="chk"><input type="checkbox" id="c-enabled"> Show captions</label>
+          <fieldset id="capfields"><legend>Position</legend>
+            <div class="seg" id="c-position" role="group" aria-label="Caption position">
+              <button type="button" data-v="top">Top</button><button type="button" data-v="middle">Middle</button><button type="button" data-v="bottom">Bottom</button>
+            </div>
+            <label class="f">Vertical offset (or drag captions on the preview)<span class="rng"><input type="range" id="c-offset" min="-0.5" max="0.5" step="0.005"><output id="o-offset"></output></span></label>
+          </fieldset>
+          <fieldset><legend>Font</legend>
+            <div class="g2">
+              <label class="f">Family<select id="c-font"></select></label>
+              <label class="f">Weight<select id="c-weight"><option value="400">Regular</option><option value="700">Bold</option></select></label>
+            </div>
+            <label class="f">Size<span class="rng"><input type="range" id="c-size" min="24" max="180" step="1"><output id="o-size"></output></span></label>
+            <div class="g2">
+              <label class="f">Outline<span class="rng"><input type="range" id="c-outline" min="0" max="20" step="0.5"><output id="o-outline"></output></span></label>
+              <label class="f">Shadow<span class="rng"><input type="range" id="c-shadow" min="0" max="20" step="0.5"><output id="o-shadow"></output></span></label>
+            </div>
+          </fieldset>
+          <fieldset><legend>Colors</legend>
+            <div class="colors">
+              <label>Text<input type="color" id="c-color"></label>
+              <label>Active word<input type="color" id="c-highlight"></label>
+              <label>Background box<input type="color" id="c-box_color"></label>
+            </div>
+            <label class="f">Box opacity<span class="rng"><input type="range" id="c-box_opacity" min="0" max="1" step="0.05"><output id="o-box_opacity"></output></span></label>
+          </fieldset>
+          <fieldset><legend>Animation &amp; text</legend>
+            <label class="f">Animation<select id="c-anim">
+              <option value="karaoke">Word-by-word highlight (karaoke)</option><option value="none">None</option><option value="fade">Fade</option>
+              <option value="pop">Pop / scale</option><option value="slide">Slide up</option><option value="typewriter">Typewriter</option></select></label>
+            <label class="f">Max words per line (max 2 lines)<span class="rng"><input type="range" id="c-max_words" min="1" max="8" step="1"><output id="o-max_words"></output></span></label>
+            <label class="chk"><input type="checkbox" id="c-uppercase"> UPPERCASE</label>
+            <label class="chk"><input type="checkbox" id="c-emoji"> Keep emoji <span class="note">(exported in monochrome)</span></label>
+          </fieldset>
+        </div>
+        <div class="panel" id="p-text" role="tabpanel" aria-labelledby="tab-text" hidden>
+          <div class="note">Words come from the clip's audio transcript (Whisper). Edit a word or its timing (seconds from the clip start), clear a word to remove it. Click a row's time to jump there.</div>
+          <div style="display:flex;gap:8px"><button class="btn ghost sm" id="wreset" type="button">Reset to transcript</button><span class="note" id="wstate"></span></div>
+          <div class="wr" style="font-size:11px;color:var(--mute);font-weight:700"><span>Start</span><span>End</span><span>Word</span><span></span></div>
+          <div class="words" id="words"></div>
+        </div>
+        <div class="panel" id="p-clip" role="tabpanel" aria-labelledby="tab-clip" hidden>
+          <div class="g2">
+            <label class="f">Start (in source)<input id="t-start" inputmode="decimal"></label>
+            <label class="f">End (in source)<input id="t-end" inputmode="decimal"></label>
+          </div>
+          <div class="g2">
+            <button class="btn ghost sm" id="t-setstart" type="button">Start = playhead</button>
+            <button class="btn ghost sm" id="t-setend" type="button">End = playhead</button>
+          </div>
+          <div class="note" id="t-len"></div>
+          <div class="note">Trimming changes which part of the source is exported. The preview scrubber always shows the trimmed clip.</div>
+        </div>
+      </div>
+    </div>
+    <div class="edf">
+      <span class="note grow" id="ed-note">Export renders exactly what the preview shows.</span>
+      <button class="btn ghost" id="ed-cancel" type="button">Cancel</button>
+      <button class="btn ghost" id="ed-save" type="button">Save</button>
+      <button class="btn" id="ed-export" type="button">Save &amp; export</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="applydlg" aria-labelledby="ap-title" style="border:1px solid var(--line2);border-radius:12px;background:var(--panel);color:var(--text);max-width:420px">
+  <form method="dialog" style="display:flex;flex-direction:column;gap:14px">
+    <h2 id="ap-title" style="text-transform:none;letter-spacing:0;color:var(--text);font-size:16px">Apply caption style to all clips?</h2>
+    <p class="note" style="margin:0">Every clip that isn't rejected gets this caption style. Framing and caption text stay as they are.</p>
+    <label class="chk"><input type="checkbox" id="ap-export" checked> Re-export them now so the files match</label>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost" value="cancel">Cancel</button><button class="btn" value="ok" id="ap-ok">Apply to all</button></div>
+  </form>
+</dialog>
+
+<div id="toasts" role="status" aria-live="polite"></div>
+
 <script>
+"use strict";
+// ======================================================================= utils
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const api=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json());
-const fmt=t=>{t=Math.round(t);const h=Math.floor(t/3600),m=Math.floor(t/60)%60,s=t%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')};
-const when=ts=>new Date(ts*1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-let editing=false;
-document.addEventListener('focusin',e=>{if(e.target.closest('.card'))editing=true});
-document.addEventListener('focusout',()=>{editing=false});
+const fmt=(t,dec=false)=>{t=Math.max(0,t||0);const h=Math.floor(t/3600),m=Math.floor(t/60)%60,s=t%60;
+  const ss=dec?s.toFixed(1).padStart(4,'0'):String(Math.floor(s)).padStart(2,'0');return (h?h+':'+String(m).padStart(2,'0'):m)+':'+ss};
+const when=ts=>new Date(ts*1000).toLocaleString([], {weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+function parseTime(v){v=String(v??'').trim();if(!v)return null;if(!/^\d+(\.\d+)?(:\d{1,2}(\.\d+)?){0,2}$/.test(v))return NaN;
+  return v.split(':').reduce((a,p)=>a*60+parseFloat(p),0)}
+async function api(path,body){
+  let r;
+  try{r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+  catch(e){throw new Error("Can't reach the server.")}
+  let d={};try{d=await r.json()}catch(e){if(!r.ok)throw new Error(`Server error (${r.status}).`)}
+  if(!r.ok||d.error&&d.ok!==false)throw Object.assign(new Error(d.error||`Request failed (${r.status}).`),{data:d});
+  return d;
+}
+async function busy(btn,fn){
+  if(btn){btn.setAttribute('aria-busy','true');btn.disabled=true}
+  try{return await fn()}finally{if(btn){btn.removeAttribute('aria-busy');btn.disabled=false}}
+}
+function toast(msg,kind='info',ms){
+  const t=document.createElement('div');t.className='toast '+(kind==='ok'?'ok':kind==='err'?'err':'');
+  t.innerHTML=`<div>${msg}</div><button class="x" aria-label="Dismiss">×</button>`;
+  t.querySelector('.x').onclick=()=>t.remove();$('toasts').append(t);
+  setTimeout(()=>t.remove(),ms||(kind==='err'?8000:4500));
+}
+const fileOf=p=>p.split(/[\\/]/).pop();
 
-$('add').onclick=async()=>{
-  const r=await api('/api/add',{url:$('url').value,start:$('start').value,end:$('end').value});
-  $('addmsg').textContent=r.error||''; if(!r.error){$('url').value='';$('start').value='';$('end').value=''} load();
+// ======================================================================= app state
+let ST=null, META=null, FILTER='pending', online=true;
+const cards=new Map();   // clip id -> card element
+
+// ---------- paste
+$('addform').onsubmit=async e=>{
+  e.preventDefault();await addLink(false);
 };
-$('wadd').onclick=async()=>{ if($('wurl').value.trim()){await api('/api/watch',{url:$('wurl').value});$('wurl').value='';load()} };
-
-async function act(id,action){
-  const c=document.querySelector(`[data-id="${id}"]`);
-  const body={action,title:c.querySelector('.f-title').value,caption:c.querySelector('.f-cap').value,hashtags:c.querySelector('.f-tags').value};
-  await api('/api/clip/'+id,body); editing=false; load();
+async function addLink(again){
+  const url=$('url').value.trim(), st=$('start').value, en=$('end').value, msg=$('addmsg');
+  msg.className='inline-msg err';msg.textContent='';
+  ['url','start','end'].forEach(i=>$(i).removeAttribute('aria-invalid'));
+  if(!url){$('url').setAttribute('aria-invalid','true');msg.textContent='Paste a video link or a file path first.';$('url').focus();return}
+  for(const [id,v] of [['start',st],['end',en]]){const t=parseTime(v);if(Number.isNaN(t)){$(id).setAttribute('aria-invalid','true');msg.textContent=`${id==='start'?'Start':'End'} must look like 90, 1:30 or 1:02:03.`;$(id).focus();return}}
+  if(st&&en&&parseTime(en)<=parseTime(st)){$('end').setAttribute('aria-invalid','true');msg.textContent='End must be after start.';return}
+  await busy($('add'),async()=>{
+    try{
+      const r=await api('/api/add',{url,start:st,end:en,again});
+      if(r.duplicate){msg.innerHTML=esc(r.error)+' <button type="button" class="btn ghost sm" id="again">Process again</button>';$('again').onclick=()=>addLink(true);return}
+      $('url').value='';$('start').value='';$('end').value='';msg.textContent='';
+      toast('Added. Downloading and clipping now; progress shows under <b>Processing</b>.','ok');load();
+    }catch(err){msg.textContent=err.message}
+  });
 }
-async function unwatch(u){await api('/api/watch',{url:u,remove:true});load()}
 
-function render(st){
-  $('p-llm').textContent='AI: '+(st.config.llm==='none'?'offline heuristic':st.config.llm);
-  $('p-mode').textContent=st.config.auto_approve?'auto-approve ON':'review before posting';
-  $('p-route').textContent=Object.entries(st.config.route).map(([k,v])=>k+'→'+v).join('  ');
+// ---------- watch
+$('watchform').onsubmit=async e=>{
+  e.preventDefault();const u=$('wurl').value.trim(),m=$('wmsg');m.className='inline-msg err';m.textContent='';
+  if(!/^https?:\/\//i.test(u)){$('wurl').setAttribute('aria-invalid','true');m.textContent='Paste a channel link starting with https://';$('wurl').focus();return}
+  $('wurl').removeAttribute('aria-invalid');
+  await busy($('wadd'),async()=>{try{await api('/api/watch',{url:u});$('wurl').value='';toast('Watching channel. New VODs will be clipped automatically.','ok');load()}catch(err){m.textContent=err.message}});
+};
+async function unwatch(btn){const u=btn.dataset.u;if(!confirm(`Stop auto-clipping ${u}?`))return;
+  await busy(btn,async()=>{try{await api('/api/watch',{url:u,remove:true});toast('Stopped watching.','ok');load()}catch(e){toast(esc(e.message),'err')}})}
+async function retrySource(btn){await busy(btn,async()=>{try{await api('/api/source/'+btn.dataset.id,{action:'retry'});toast('Retrying…','ok');load()}catch(e){toast(esc(e.message),'err')}})}
+async function jobAct(btn,action){await busy(btn,async()=>{try{await api('/api/job/'+btn.dataset.id,{action});toast(action==='retry'?'Post queued to retry now.':'Post cancelled.','ok');load()}catch(e){toast(esc(e.message),'err')}})}
 
-  $('watches').innerHTML=st.watches.length?'<table>'+st.watches.map(w=>`<tr><td>${esc(w.url)}</td><td style="width:60px"><button class="ghost" data-u="${esc(w.url)}" onclick="unwatch(this.dataset.u)">stop</button></td></tr>`).join('')+'</table>':'<div class="empty">No channels watched yet.</div>';
-  $('sources').innerHTML=st.sources.length?'<table>'+st.sources.slice(0,8).map(s=>`<tr><td>${esc(s.title||s.url).slice(0,70)}<div class="err">${esc(s.error)}</div></td><td style="width:80px"><span class="tag t-${s.status}">${s.status}</span></td></tr>`).join('')+'</table>':'<div class="empty">Nothing yet.</div>';
+// ---------- clip cards
+document.querySelectorAll('#ftabs [role=tab]').forEach(b=>b.onclick=()=>{FILTER=b.dataset.f;
+  document.querySelectorAll('#ftabs [role=tab]').forEach(x=>x.setAttribute('aria-selected',String(x===b)));renderClips()});
 
-  if(!editing){
-    const clips=st.clips.filter(c=>c.status!=='rejected');
-    $('clips').innerHTML=clips.length?clips.map(c=>{
-      const file=c.path.split(/[\\/]/).pop();
-      const tags=JSON.parse(c.hashtags||'[]').join(' ');
-      return `<div class="card" data-id="${c.id}">
-        <video src="/media/${encodeURIComponent(file)}" poster="/media/${encodeURIComponent(file.replace(/\.mp4$/,'.jpg'))}" controls preload="none" playsinline></video>
-        <div class="body">
-          <div class="meta"><span>${fmt(c.start)}–${fmt(c.end)} · ${Math.round(c.end-c.start)}s</span><span><span class="score">${Math.round(c.score)}</span> · <span class="tag t-${c.status}">${c.status}</span></span></div>
-          <input class="f-title" value="${esc(c.title)}" maxlength="100" placeholder="Title / headline">
-          <textarea class="f-cap" placeholder="Caption">${esc(c.caption)}</textarea>
-          <input class="f-tags" value="${esc(tags)}" placeholder="#hashtags">
-          <div class="meta">${esc(c.reason)}</div>
-          <div class="btns">${c.status==='pending'?`<button class="ok" onclick="act(${c.id},'approve')">Approve & queue</button><button class="bad" onclick="act(${c.id},'reject')">Reject</button>`
-            :`<button class="ghost" onclick="act(${c.id},'save')">Save edits</button><button class="ghost" onclick="act(${c.id},'post_now')">Post now</button>`}</div>
-        </div></div>`}).join(''):'<div class="empty" style="grid-column:1/-1">No clips yet. Paste a link above.</div>';
+function cardFields(c){return {title:c.querySelector('.f-title').value,caption:c.querySelector('.f-cap').value,hashtags:c.querySelector('.f-tags').value}}
+async function clipAct(id,action,btn){
+  const c=cards.get(id);const body={action,...cardFields(c)};
+  if(action==='reject'&&!confirm('Reject this clip? You can restore it from the Rejected tab.'))return;
+  await busy(btn,async()=>{
+    try{
+      const r=await api('/api/clip/'+id,body);c.classList.remove('dirty');
+      const m={approve:r.due?`Approved. Scheduled for <b>${when(r.due)}</b>.`:(r.message||'Approved.'),reject:'Clip rejected.',restore:'Clip restored to review.',
+               save:'Changes saved.',post_now:`Posting now to ${r.count} platform${r.count>1?'s':''}.`};
+      toast(m[action]||'Done.','ok');await load(true);
+    }catch(e){toast(esc(e.message),'err')}
+  });
+}
+function buttonsFor(c){
+  const id=c.id, rend=c.render_status==='queued'||c.render_status==='rendering';
+  const edit=`<button class="btn ghost" data-a="edit" ${rend?'disabled title="Exporting…"':''}>Edit</button>`;
+  if(c.status==='pending')return `${edit}<button class="btn ok" data-a="approve">Approve</button><button class="btn danger" data-a="reject" aria-label="Reject clip">Reject</button>`;
+  if(c.status==='approved')return `${edit}<button class="btn ghost" data-a="save">Save</button><button class="btn" data-a="post_now">Post now</button>`;
+  return `<button class="btn ghost" data-a="restore">Restore</button>`;
+}
+function makeCard(c){
+  const el=document.createElement('article');el.className='card';el.dataset.id=c.id;
+  el.innerHTML=`<div class="vwrap"><video controls preload="none" playsinline></video><div class="rs" role="status"></div></div>
+    <div class="body">
+      <div class="meta"><span class="when"></span><span><span class="score" title="AI virality score"></span> <span class="tag st"></span></span></div>
+      <label class="sr" for="ti${c.id}">Title</label><input id="ti${c.id}" class="f-title" maxlength="100" placeholder="Title / headline">
+      <label class="sr" for="ca${c.id}">Caption</label><textarea id="ca${c.id}" class="f-cap" placeholder="Post caption"></textarea>
+      <label class="sr" for="ta${c.id}">Hashtags</label><input id="ta${c.id}" class="f-tags" placeholder="#hashtags">
+      <div class="meta"><span class="reason"></span><span class="unsaved">● unsaved</span></div>
+      <div class="meta"><a class="dl" download>Download MP4</a><span class="ver"></span></div>
+      <div class="btns"></div>
+    </div>`;
+  el.addEventListener('input',()=>el.classList.add('dirty'));
+  el.querySelector('.btns').addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b)return;
+    if(b.dataset.a==='edit')openEditor(c.id);else clipAct(c.id,b.dataset.a,b)});
+  el.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();clipAct(c.id,'save',el.querySelector('[data-a=save]'))}});
+  return el;
+}
+function updateCard(el,c){
+  const file=fileOf(c.path), v=el.querySelector('video');
+  if(el.dataset.file!==file&&v.paused){el.dataset.file=file;v.poster='/media/'+encodeURIComponent(file.replace(/\.mp4$/,'.jpg'));v.src='/media/'+encodeURIComponent(file)}
+  el.querySelector('.dl').href='/media/'+encodeURIComponent(file);
+  el.querySelector('.when').textContent=`${fmt(c.start)}–${fmt(c.end)} · ${Math.round(c.end-c.start)}s`;
+  el.querySelector('.score').textContent=Math.round(c.score);
+  const st=el.querySelector('.st');st.className='tag st t-'+c.status;st.textContent=c.status;
+  el.querySelector('.reason').textContent=c.reason||'';
+  el.querySelector('.ver').textContent=c.version?`edited v${c.version}`:'';
+  const rs=el.querySelector('.rs');
+  if(c.render_status==='queued'||c.render_status==='rendering'){rs.className='rs show';rs.innerHTML=`<span class="spin"></span>${c.render_status==='queued'?'Waiting to export…':'Exporting…'}`}
+  else if(c.render_status==='error'){rs.className='rs show err';rs.textContent='Export failed: '+(c.render_error||'unknown error')}
+  else rs.className='rs';
+  const focused=el.contains(document.activeElement);
+  if(!el.classList.contains('dirty')&&!focused){
+    el.querySelector('.f-title').value=c.title||'';el.querySelector('.f-cap').value=c.caption||'';
+    let tags=[];try{tags=JSON.parse(c.hashtags||'[]')}catch(e){};el.querySelector('.f-tags').value=tags.join(' ');
   }
-  const byClip={};st.clips.forEach(c=>byClip[c.id]=c);
-  $('jobs').innerHTML=st.jobs.length?'<table><tr><th>When</th><th>Clip</th><th>Platform</th><th>Status</th><th>Result</th></tr>'+st.jobs.map(j=>`<tr><td>${when(j.due)}</td><td>${esc((byClip[j.clip_id]||{}).title||j.clip_id).slice(0,50)}</td><td>${j.platform}</td><td><span class="tag t-${j.status}">${j.status}</span></td><td>${esc(j.result||'')}</td></tr>`).join('')+'</table>':'<div class="empty">Approved clips appear here with their scheduled post time.</div>';
+  const sig=c.status+'|'+c.render_status;
+  if(el.dataset.sig!==sig&&!el.querySelector('.btns').contains(document.activeElement)){el.dataset.sig=sig;el.querySelector('.btns').innerHTML=buttonsFor(c)}
 }
-async function load(){ try{ render(await (await fetch('/api/state')).json()) }catch(e){} }
-load(); setInterval(load,4000);
+const prevRender={};
+function renderClips(){
+  if(!ST)return;
+  const all=ST.clips, counts={pending:0,approved:0,rejected:0,all:all.length};
+  all.forEach(c=>counts[c.status]=(counts[c.status]||0)+1);
+  document.querySelectorAll('#ftabs [role=tab]').forEach(b=>{b.textContent=({pending:'To review',approved:'Approved',rejected:'Rejected',all:'All'})[b.dataset.f]+` (${counts[b.dataset.f]||0})`});
+  // notify when an export finishes
+  all.forEach(c=>{const p=prevRender[c.id];if(p&&(p==='queued'||p==='rendering')&&!c.render_status)toast(`Export ready: <b>${esc(c.title).slice(0,50)}</b>. <a href="/media/${encodeURIComponent(fileOf(c.path))}" download>Download</a>`,'ok');
+    if(p&&p!=='error'&&c.render_status==='error')toast(`Export failed: ${esc(c.render_error)}`,'err');prevRender[c.id]=c.render_status||''});
+  const shown=all.filter(c=>FILTER==='all'||c.status===FILTER).sort((a,b)=>a.id-b.id);
+  const grid=$('clips'), keep=new Set(shown.map(c=>c.id));
+  for(const [id,el] of cards){if(!keep.has(id)&&!el.classList.contains('dirty')){el.remove();cards.delete(id)}}
+  grid.querySelector('.empty')?.remove();
+  shown.forEach((c,i)=>{let el=cards.get(c.id);if(!el){el=makeCard(c);cards.set(c.id,el)}
+    updateCard(el,c);if(grid.children[i]!==el)grid.insertBefore(el,grid.children[i]||null)});
+  if(!shown.length){const msg={pending:all.length?'Nothing waiting for review. Check the Approved tab, or paste another link.':'No clips yet. Paste a link above and they appear here.',
+    approved:'No approved clips yet. Approve a clip to schedule it.',rejected:'No rejected clips.',all:'No clips yet. Paste a link above.'}[FILTER];
+    grid.insertAdjacentHTML('beforeend',`<div class="empty" style="grid-column:1/-1">${msg}</div>`)}
+}
+
+function render(){
+  const st=ST, cfg=st.config;
+  $('pills').innerHTML=`<span class="pill ${online?'':'bad'}" title="Highlight finder. Set GEMINI_API_KEY / GROQ_API_KEY / OLLAMA_MODEL in .env">${online?'AI: '+(cfg.llm==='none'?'offline heuristic':esc(cfg.llm)):'offline'}</span>`+
+    `<span class="pill" title="AUTO_APPROVE in .env">${cfg.auto_approve?'auto-approve on':'review before posting'}</span>`+
+    Object.entries(cfg.route).filter(([k])=>cfg.platforms.includes(k)).map(([k,v])=>`<span class="pill" title="PUBLISH_${k.toUpperCase()} in .env">${esc(k)} → ${esc(v)}</span>`).join('');
+  // sources
+  $('sources').innerHTML=st.sources.length?st.sources.slice(0,10).map(s=>{
+    const pct=(s.progress||'').match(/(\d+)%/), working=s.status==='working'||s.status==='new';
+    const r=(s.progress||'').match(/rendering (\d+)\/(\d+)/), w=pct?+pct[1]:r?Math.round(+r[1]/+r[2]*100):0;
+    return `<div class="li"><div class="grow"><div class="t" title="${esc(s.url)}">${esc(s.title||s.url)}</div>
+      ${working?`<div class="sub">${esc(s.progress||'queued')}</div><div class="prog ${w?'':'ind'}"><i style="width:${w}%"></i></div>`:''}
+      ${s.status==='error'?`<div class="sub err">${esc(s.error)}</div>`:''}</div>
+      ${s.status==='error'?`<button class="btn ghost sm" data-id="${s.id}" onclick="retrySource(this)">Retry</button>`:''}
+      <span class="tag t-${s.status}">${s.status==='new'?'queued':s.status}</span></div>`}).join(''):'<div class="empty">Nothing processing. Paste a link to start.</div>';
+  // watches
+  $('wcount').textContent=st.watches.length?`(${st.watches.length})`:'';
+  $('watches').innerHTML=st.watches.length?st.watches.map(w=>`<div class="li"><div class="grow t" title="${esc(w.url)}">${esc(w.url)}<div class="sub">${w.last_checked?'last checked '+when(w.last_checked):'not checked yet'}</div></div>
+     <button class="btn ghost sm" data-u="${esc(w.url)}" onclick="unwatch(this)">Stop watching</button></div>`).join(''):'<div class="hint">No channels watched yet.</div>';
+  renderClips();
+  // queue
+  const byClip={};st.clips.forEach(c=>byClip[c.id]=c);
+  $('qhint').textContent=`Posts go out at ${cfg.post_times.join(', ')} (${cfg.schedule_mode==='provider'?'scheduled by the posting service':'keep this app running'}).`;
+  $('jobs').innerHTML=st.jobs.length?'<div class="tablewrap"><table><thead><tr><th>When</th><th>Clip</th><th>Platform</th><th>Status</th><th>Result</th><th><span class="sr">Actions</span></th></tr></thead><tbody>'+
+    st.jobs.map(j=>`<tr><td>${when(j.due)}</td><td>${esc((byClip[j.clip_id]||{}).title||'clip '+j.clip_id).slice(0,50)}</td><td>${esc(j.platform)}</td>
+      <td><span class="tag t-${j.status}">${j.status==='skipped'?'cancelled':j.status}</span></td><td style="max-width:320px;word-break:break-word">${esc(j.result||'')}</td>
+      <td style="white-space:nowrap">${j.status==='failed'||j.status==='skipped'?`<button class="btn ghost sm" data-id="${j.id}" onclick="jobAct(this,'retry')">Retry</button>`:''}
+      ${j.status==='queued'?`<button class="btn ghost sm" data-id="${j.id}" onclick="jobAct(this,'cancel')">Cancel</button>`:''}</td></tr>`).join('')+'</tbody></table></div>'
+    :'<div class="empty">Approved clips show up here with their scheduled post time.</div>';
+  // stepper
+  const pend=st.clips.some(c=>c.status==='pending'), appr=st.clips.some(c=>c.status==='approved'), any=st.clips.length>0;
+  const cur=$('ed').open?3:pend?2:appr?4:any?2:1;
+  document.querySelectorAll('#steps a').forEach(a=>{const n=+a.dataset.step;a.toggleAttribute('aria-current',n===cur);if(n===cur)a.setAttribute('aria-current','step');
+    a.classList.toggle('done',n<cur||(n===1&&any)||(n===2&&appr))});
+}
+async function load(){
+  try{const r=await fetch('/api/state');if(!r.ok)throw 0;ST=await r.json();if(!online){online=true;$('offline').classList.remove('show');toast('Reconnected.','ok')}render()}
+  catch(e){if(online){online=false;$('offline').classList.add('show');if(ST)render()}}
+}
+load();setInterval(load,3000);
+
+// ======================================================================= LAYOUT TWIN
+// Line-for-line mirror of clipdai/layout.py. Keep the two in sync: this is what makes the preview match the export.
+function captionSafeRect(W,H){
+  const A=META.aspects['9:16'];
+  if(W===A[0]&&H===A[1]){const z=Object.values(META.safe_zones);
+    const top=Math.max(...z.map(v=>v.top)),bottom=Math.max(...z.map(v=>v.bottom)),side=Math.max(...z.map(v=>Math.max(v.left,v.right)));
+    return [side,top,W-side,H-bottom]}
+  const mx=W*META.generic_margin,my=H*META.generic_margin;return [mx,my,W-mx,H-my];
+}
+function frameRect(sw,sh,W,H,e){
+  const fit=Math.min(W/sw,H/sh),cover=Math.max(W/sw,H/sh);
+  if(e.framing==='fill'){const w=sw*cover,h=sh*cover;return [-(w-W)*e.pan_x,-(h-H)*e.pan_y,w,h]}
+  if(e.framing==='manual'){const k=fit*e.zoom,w=sw*k,h=sh*k;return [W/2+e.off_x*W-w/2,H/2+e.off_y*H-h/2,w,h]}
+  const w=sw*fit,h=sh*fit;return [(W-w)/2,(H-h)/2,w,h];
+}
+const EMOJI_RE=/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;
+function fontMetrics(st){const f=META.fonts[st.font]||META.fonts.Arial;return f[st.weight>=600?'bold':'regular']}
+function textWidth(text,em,widths){let t=0;for(const ch of text){if(ch in widths)t+=widths[ch];else t+=ch.codePointAt(0)<128?META.consts.unknown_ascii:META.consts.unknown_other}return t*em}
+function prepareWords(words,st){const out=[];
+  for(const [s,e,t0] of words){let t=String(t0).replace(/\{/g,'(').replace(/\}/g,')').replace(/\\/g,'/').replace(/\s+/g,' ').trim();
+    if(!st.emoji)t=t.replace(EMOJI_RE,'').trim();if(st.uppercase)t=t.toUpperCase();if(t)out.push([+s,+e,t])}
+  return out}
+function pagesOf(words,mw){const pages=[];let cur=[];
+  words.forEach((w,i)=>{cur.push(w);const gap=i+1<words.length?words[i+1][0]-w[1]:99;
+    if(cur.length>=2*mw||/[.!?]$/.test(w[2])||gap>0.6||(cur.length>=mw&&/[,;:]$/.test(w[2]))){pages.push(cur);cur=[]}});
+  if(cur.length)pages.push(cur);return pages}
+function layoutPages(words,st,W,H,clipLen){
+  const m=fontMetrics(st),cell=m.cell,widths=m.widths,asc=m.asc??cell*0.8;
+  const scale=Math.min(W,H)/1080,em0=st.size*scale/cell,outline=st.outline*scale,boxed=st.box_opacity>0;
+  const [l,t,r,b]=captionSafeRect(W,H);
+  words=prepareWords(words,st).filter(w=>w[1]>0&&w[0]<clipLen);
+  const pages=pagesOf(words,st.max_words),out=[];
+  pages.forEach((pg,pi)=>{
+    const n=pg.length,k=Math.ceil(n/2),lines=n<=st.max_words?[pg]:[pg.slice(0,k),pg.slice(k)];
+    const padx0=boxed?0.3*em0:0, avail=(r-l)*META.consts.safety-2*outline-2*padx0;
+    const lw=lines.map(ln=>textWidth(ln.map(w=>w[2]).join(' '),em0,widths));
+    const f=Math.min(1,avail/Math.max(Math.max(...lw),1)),em=em0*f,lineH=em*cell,blockH=lineH*lines.length;
+    const [padx,pady]=boxed?[0.3*em,0.12*em]:[0,0], half=blockH/2+pady+outline;
+    let cy=st.position==='top'?t+half:st.position==='middle'?(t+b)/2:b-half;
+    cy+=st.offset*H; cy=(b-t)>2*half?Math.min(Math.max(cy,t+half),b-half):(t+b)/2;
+    const start=Math.max(0,pg[0][0]),nxt=pi+1<pages.length?pages[pi+1][0][0]:clipLen;
+    let end=Math.min(nxt,pg[pg.length-1][1]+0.6,clipLen);if(end-start<0.12)end=Math.min(clipLen,start+0.12);
+    const mlw=Math.max(...lw)*f;
+    out.push({start:Math.round(start*1000)/1000,end:Math.round(end*1000)/1000,lines:lines.map(ln=>ln.map(w=>({s:w[0],e:w[1],t:w[2]}))),
+      em,ass_size:em*cell,asc,cell,cx:W/2,cy,line_h:lineH,block_h:blockH,half,
+      box:boxed?[W/2-mlw/2-padx,cy-blockH/2-pady,W/2+mlw/2+padx,cy+blockH/2+pady]:null});
+  });
+  return out}
+// ======================================================================= /LAYOUT TWIN
+
+// ======================================================================= editor
+const ed={};  // current editor session
+const cv=$('cv'),ctx=cv.getContext('2d');
+const vid=document.createElement('video');vid.preload='auto';vid.playsInline=true;vid.crossOrigin='anonymous';
+let raf=0, pagesCache=null, uiPrefs={safe:true,plat:'all'};
+try{Object.assign(uiPrefs,JSON.parse(localStorage.getItem('cf-ed')||'{}'))}catch(e){}
+const savePrefs=()=>{try{localStorage.setItem('cf-ed',JSON.stringify(uiPrefs))}catch(e){}};
+
+async function ensureMeta(){if(!META)META=await api('/api/meta');return META}
+async function openEditor(id){
+  try{await ensureMeta();const d=await api('/api/editor/'+id);
+    Object.assign(ed,{id,clip:d.clip,edit:d.edit,words:d.words,transcript:d.transcript,src:d.source,start:d.clip.start,end:d.clip.end,dirty:false});
+  }catch(e){toast(esc(e.message),'err');return}
+  $('ed-title').textContent=ed.clip.title||'Edit clip';
+  buildStaticControls();syncControls();renderWords();syncTrim();setDirty(false);
+  $('cvload').style.display='flex';
+  vid.src=ed.src.media;vid.currentTime=ed.start;
+  $('ed').showModal();render();
+  if(location.hash!=='#edit='+id&&!location.hash.startsWith('#edit='+id+'&'))history.replaceState(null,'','#edit='+id);
+  cancelAnimationFrame(raf);raf=requestAnimationFrame(tick);
+}
+function closeEditor(force){
+  if(!force&&ed.dirty&&!confirm('Discard unsaved changes?'))return false;
+  vid.pause();vid.removeAttribute('src');vid.load();cancelAnimationFrame(raf);$('ed').close();
+  if(location.hash.startsWith('#edit='))history.replaceState(null,'',location.pathname);render();return true;
+}
+// deep link: #edit=<clip id>[&t=<seconds into the clip>] opens the editor (survives reloads)
+async function openFromHash(){const m=location.hash.match(/^#edit=(\d+)(?:&t=([\d.]+))?/);if(!m||$('ed').open)return;
+  await openEditor(+m[1]);if(m[2]&&ed.id===+m[1])vid.currentTime=ed.start+(+m[2])}
+window.addEventListener('hashchange',openFromHash);openFromHash();
+$('ed-close').onclick=()=>closeEditor();$('ed-cancel').onclick=()=>closeEditor();
+$('ed').addEventListener('cancel',e=>{e.preventDefault();closeEditor()});
+vid.addEventListener('loadeddata',()=>$('cvload').style.display='none');
+vid.addEventListener('error',()=>{$('cvload').innerHTML='Could not load the source video.'});
+
+function setDirty(v){ed.dirty=v;$('ed-dirty').style.display=v?'inline':'none';pagesCache=null}
+const S=()=>ed.edit.captions;
+
+function seg(container,values,get,set){
+  container.innerHTML=values.map(([v,l])=>`<button type="button" data-v="${v}">${l}</button>`).join('');
+  container.onclick=e=>{const b=e.target.closest('button');if(!b)return;set(b.dataset.v);syncControls();setDirty(true)};
+  container._get=get;
+}
+function buildStaticControls(){
+  if(buildStaticControls.done)return;buildStaticControls.done=true;
+  seg($('aspect'),Object.keys(META.aspects).map(a=>[a,a]),()=>ed.edit.aspect,v=>{ed.edit.aspect=v});
+  $('framing').onclick=e=>{const b=e.target.closest('button');if(!b)return;setFraming(b.dataset.v);syncControls();setDirty(true)};
+  $('c-position').onclick=e=>{const b=e.target.closest('button');if(!b)return;S().position=b.dataset.v;S().offset=0;syncControls();setDirty(true)};
+  $('c-font').innerHTML=Object.keys(META.fonts).map(f=>`<option style="font-family:'${f}'">${f}</option>`).join('');
+  const bind=(id,key,num)=>{const el=$('c-'+id);el.addEventListener('input',()=>{S()[key]=el.type==='checkbox'?el.checked:num?+el.value:el.value;syncControls();setDirty(true)})};
+  [['font','font'],['color','color'],['highlight','highlight'],['box_color','box_color'],['anim','anim']].forEach(([i,k])=>bind(i,k,false));
+  [['weight','weight'],['size','size'],['outline','outline'],['shadow','shadow'],['box_opacity','box_opacity'],['max_words','max_words'],['offset','offset']].forEach(([i,k])=>bind(i,k,true));
+  [['enabled','enabled'],['uppercase','uppercase'],['emoji','emoji']].forEach(([i,k])=>bind(i,k,false));
+  $('zoom').addEventListener('input',()=>{ed.edit.zoom=+$('zoom').value;syncControls();setDirty(true)});
+  $('recenter').onclick=()=>{ed.edit.off_x=0;ed.edit.off_y=0;ed.edit.pan_x=.5;ed.edit.pan_y=.5;syncControls();setDirty(true)};
+  $('safe').onchange=()=>{uiPrefs.safe=$('safe').checked;savePrefs()};
+  $('safep').onchange=()=>{uiPrefs.plat=$('safep').value;savePrefs()};
+}
+function setFraming(v){
+  const e=ed.edit,{width:sw,height:sh}=ed.src,[W,H]=META.aspects[e.aspect];
+  if(v==='manual'&&e.framing!=='manual'){ // start manual from whatever is on screen now
+    const [x,y,w]=frameRect(sw,sh,W,H,e),fit=Math.min(W/sw,H/sh),h=sh*(w/sw);
+    e.zoom=+(w/sw/fit).toFixed(3);e.off_x=(x+w/2-W/2)/W;e.off_y=(y+h/2-H/2)/H;
+  }
+  e.framing=v;
+}
+function syncControls(){
+  const e=ed.edit,s=S();
+  document.querySelectorAll('#aspect button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===e.aspect)));
+  document.querySelectorAll('#framing button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===e.framing)));
+  document.querySelectorAll('#c-position button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===s.position)));
+  $('zoomwrap').hidden=e.framing!=='manual';$('recenter').hidden=e.framing==='fit';
+  $('zoom').value=e.zoom;$('zoomv').textContent=Math.round(e.zoom*100)+'%';
+  for(const k of ['font','color','highlight','box_color','anim','weight','size','outline','shadow','box_opacity','max_words','offset']){
+    const el=$('c-'+k);if(String(el.value)!==String(s[k]))el.value=s[k];const o=$('o-'+k);
+    if(o)o.textContent=k==='box_opacity'?Math.round(s[k]*100)+'%':k==='offset'?(s[k]>0?'+':'')+Math.round(s[k]*100)+'%':s[k]}
+  for(const k of ['enabled','uppercase','emoji'])$('c-'+k).checked=!!s[k];
+  document.querySelectorAll('#p-style fieldset:not(:first-of-type) :is(input,select,button)').forEach(el=>el.disabled=!s.enabled);
+  $('safe').checked=uiPrefs.safe;$('safep').value=uiPrefs.plat;$('safep').disabled=!uiPrefs.safe;
+  const [W,H]=META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
+  // keep the canvas element at export ratio; internal resolution capped for speed
+  const q=Math.min(1,900/Math.max(W,H));if(cv.width!==Math.round(W*q)||cv.height!==Math.round(H*q)){cv.width=Math.round(W*q);cv.height=Math.round(H*q)}
+  fitCanvas();fillPresets();pagesCache=null;
+}
+// size the canvas element to the largest box of the export ratio that fits the stage
+function fitCanvas(){if(!META||!ed.edit)return;const [W,H]=META.aspects[ed.edit.aspect],b=$('cvwrap').getBoundingClientRect();
+  const k=Math.min((b.width-16)/W,(b.height-16)/H);if(k>0){cv.style.width=Math.floor(W*k)+'px';cv.style.height=Math.floor(H*k)+'px'}}
+new ResizeObserver(fitCanvas).observe($('cvwrap'));
+
+// ---------- presets
+function fillPresets(){
+  const sel=$('preset'),cur=sel.value;
+  const b=Object.keys(META.builtin_presets),u=Object.keys(META.presets||{});
+  sel.innerHTML='<option value="">Choose a preset…</option><optgroup label="Built-in">'+b.map(n=>`<option value="b:${esc(n)}">${esc(n)}</option>`).join('')+'</optgroup>'+
+    (u.length?'<optgroup label="Saved">'+u.map(n=>`<option value="u:${esc(n)}">${esc(n)}</option>`).join('')+'</optgroup>':'');
+  sel.value=cur;$('pdel').disabled=!sel.value.startsWith('u:');
+}
+$('preset').onchange=()=>{const v=$('preset').value;if(!v)return;const n=v.slice(2);
+  const st=v[0]==='b'?META.builtin_presets[n]:META.presets[n];ed.edit.captions={...st,enabled:true};syncControls();setDirty(true);toast(`Applied preset “${esc(n)}”.`,'ok')};
+$('psave').onclick=async()=>{const n=$('pname').value.trim();if(!n){$('pname').setAttribute('aria-invalid','true');$('pname').focus();toast('Type a name for the preset.','err');return}
+  $('pname').removeAttribute('aria-invalid');
+  await busy($('psave'),async()=>{try{const r=await api('/api/presets',{name:n,style:S()});META.presets=r.presets;$('pname').value='';fillPresets();$('preset').value='u:'+n;$('pdel').disabled=false;toast(`Saved preset “${esc(n)}”.`,'ok')}catch(e){toast(esc(e.message),'err')}})};
+$('pdel').onclick=async()=>{const v=$('preset').value;if(!v.startsWith('u:'))return;const n=v.slice(2);if(!confirm(`Delete preset “${n}”?`))return;
+  await busy($('pdel'),async()=>{try{const r=await api('/api/presets',{name:n,delete:true});META.presets=r.presets;$('preset').value='';fillPresets();toast('Preset deleted.','ok')}catch(e){toast(esc(e.message),'err')}})};
+$('papply').onclick=()=>$('applydlg').showModal();
+$('applydlg').addEventListener('close',async()=>{if($('applydlg').returnValue!=='ok')return;
+  await busy($('papply'),async()=>{try{
+    if(ed.dirty)await saveEditor(false,true);
+    const r=await api('/api/presets/apply',{style:S(),export:$('ap-export').checked});
+    toast(`Caption style applied to ${r.count} clip${r.count===1?'':'s'}${$('ap-export').checked?'; exporting them now':''}.`,'ok');load()}catch(e){toast(esc(e.message),'err')}})});
+
+// ---------- words (text & timing)
+const effWords=()=>ed.words??ed.transcript.filter(w=>w[1]>ed.start&&w[0]<ed.end);
+function renderWords(){
+  const ws=effWords().filter(w=>w[1]>ed.start&&w[0]<ed.end);
+  $('wstate').textContent=ed.words?'Edited':'From transcript';$('wreset').disabled=!ed.words;
+  $('words').innerHTML=ws.length?ws.map((w,i)=>`<div class="wr" data-i="${i}">
+     <input aria-label="Start of word ${i+1} (seconds)" data-k="0" value="${(w[0]-ed.start).toFixed(2)}" inputmode="decimal">
+     <input aria-label="End of word ${i+1} (seconds)" data-k="1" value="${(w[1]-ed.start).toFixed(2)}" inputmode="decimal">
+     <input aria-label="Word ${i+1}" data-k="2" value="${esc(String(w[2]).trim())}">
+     <button class="del" type="button" aria-label="Delete word ${i+1}" title="Delete word">×</button></div>`).join('')
+    :'<div class="note">No speech in this range.</div>';
+  ed.visWords=ws;
+}
+function materializeWords(){if(!ed.words)ed.words=effWords().filter(w=>w[1]>ed.start&&w[0]<ed.end).map(w=>[w[0],w[1],String(w[2]).trim()])}
+$('words').addEventListener('change',e=>{
+  const row=e.target.closest('.wr');if(!row)return;materializeWords();
+  const w=ed.visWords[+row.dataset.i],idx=ed.words.findIndex(x=>x[0]===w[0]&&x[1]===w[1]&&x[2]==String(w[2]).trim());if(idx<0)return;
+  const k=+e.target.dataset.k;
+  if(k===2){if(!e.target.value.trim())ed.words.splice(idx,1);else ed.words[idx][2]=e.target.value.trim()}
+  else{const v=parseFloat(e.target.value);if(Number.isNaN(v)){toast('Times are seconds from the clip start, e.g. 1.25','err');renderWords();return}
+    ed.words[idx][k]=Math.round((v+ed.start)*1000)/1000;
+    if(ed.words[idx][1]<=ed.words[idx][0])ed.words[idx][1]=ed.words[idx][0]+0.05;ed.words.sort((a,b)=>a[0]-b[0])}
+  setDirty(true);renderWords();
+});
+$('words').addEventListener('click',e=>{
+  if(e.target.closest('.del')){const row=e.target.closest('.wr');materializeWords();const w=ed.visWords[+row.dataset.i];
+    const idx=ed.words.findIndex(x=>x[0]===w[0]&&x[1]===w[1]);if(idx>=0)ed.words.splice(idx,1);setDirty(true);renderWords();return}
+  const inp=e.target.closest('input[data-k="0"],input[data-k="1"]');if(inp){const w=ed.visWords[+inp.closest('.wr').dataset.i];vid.currentTime=w[0]}
+});
+$('wreset').onclick=()=>{if(!confirm('Discard your caption text edits and use the transcript again?'))return;ed.words=null;setDirty(true);renderWords()};
+
+// ---------- trim
+function syncTrim(){$('t-start').value=ed.start.toFixed(2);$('t-end').value=ed.end.toFixed(2);$('t-len').textContent=`Length ${ (ed.end-ed.start).toFixed(1)}s (${fmt(ed.start,true)} → ${fmt(ed.end,true)} in the source)`;
+  $('scrub').max=(ed.end-ed.start).toFixed(2)}
+function setTrim(st,en){
+  if(Number.isNaN(st)||Number.isNaN(en)||st==null||en==null){toast('Enter times as seconds or m:ss.','err');syncTrim();return}
+  st=Math.max(0,st);en=Math.min(ed.src.duration||en,en);
+  if(en-st<1){toast('A clip must be at least 1 second long.','err');syncTrim();return}
+  if(en-st>600){toast('A clip can be at most 10 minutes long.','err');syncTrim();return}
+  ed.start=st;ed.end=en;setDirty(true);syncTrim();renderWords();if(vid.currentTime<st||vid.currentTime>en)vid.currentTime=st;
+}
+$('t-start').onchange=()=>setTrim(parseTime($('t-start').value),ed.end);
+$('t-end').onchange=()=>setTrim(ed.start,parseTime($('t-end').value));
+$('t-setstart').onclick=()=>setTrim(vid.currentTime,ed.end);
+$('t-setend').onclick=()=>setTrim(ed.start,vid.currentTime);
+
+// ---------- tabs
+document.querySelectorAll('.side [role=tab]').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.side [role=tab]').forEach(x=>{x.setAttribute('aria-selected',String(x===t));$(x.getAttribute('aria-controls')).hidden=x!==t})});
+document.querySelector('.side [role=tablist]').addEventListener('keydown',e=>{
+  if(!['ArrowLeft','ArrowRight'].includes(e.key))return;const tabs=[...document.querySelectorAll('.side [role=tab]')];
+  const i=tabs.indexOf(document.activeElement);const n=tabs[(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length];n.focus();n.click()});
+
+// ---------- transport
+$('play').onclick=()=>{if(vid.paused){if(vid.currentTime<ed.start||vid.currentTime>=ed.end-0.05)vid.currentTime=ed.start;vid.play().catch(()=>{})}else vid.pause()};
+vid.addEventListener('play',()=>{$('play').textContent='❚❚';$('play').setAttribute('aria-label','Pause')});
+vid.addEventListener('pause',()=>{$('play').textContent='▶';$('play').setAttribute('aria-label','Play')});
+$('scrub').addEventListener('input',()=>{vid.currentTime=ed.start+(+$('scrub').value)});
+$('ed').addEventListener('keydown',e=>{if(e.key===' '&&!e.target.closest('input,select,textarea,button')){e.preventDefault();$('play').click()}});
+
+// ---------- save / export
+async function saveEditor(exportToo,silent){
+  const body={edit:ed.edit,words:ed.words,start:+ed.start.toFixed(3),end:+ed.end.toFixed(3),action:exportToo?'export':undefined};
+  const r=await api('/api/clip/'+ed.id,body);setDirty(false);ed.clip.start=ed.start;ed.clip.end=ed.end;
+  if(!silent)toast(exportToo?'Saved. Exporting now; the card shows progress and you get a notice when it’s ready.':'Saved. Export when you are ready.','ok');
+  load();return r;
+}
+$('ed-save').onclick=()=>busy($('ed-save'),async()=>{try{await saveEditor(false)}catch(e){toast(esc(e.message),'err')}});
+$('ed-export').onclick=()=>busy($('ed-export'),async()=>{try{await saveEditor(true);closeEditor(true)}catch(e){toast(esc(e.message),'err')}});
+
+// ---------- drawing
+function tick(){raf=requestAnimationFrame(tick);if(!$('ed').open)return;
+  if(!vid.paused&&vid.currentTime>=ed.end){if($('loop').checked){vid.currentTime=ed.start}else{vid.pause();vid.currentTime=ed.end}}
+  const rel=Math.max(0,vid.currentTime-ed.start);
+  if(document.activeElement!==$('scrub'))$('scrub').value=rel.toFixed(2);
+  $('tc').textContent=`${fmt(rel,true)} / ${fmt(ed.end-ed.start,true)}`;
+  draw(rel);
+  // highlight the current word row
+  const rows=$('words').children;let curI=-1;(ed.visWords||[]).forEach((w,i)=>{if(w[0]<=vid.currentTime&&vid.currentTime<w[1])curI=i});
+  if(curI!==tick.last){tick.last=curI;[...rows].forEach((r,i)=>r.classList?.toggle('cur',i===curI))}
+}
+function relWords(){return effWords().filter(w=>w[1]>ed.start&&w[0]<ed.end).map(w=>[w[0]-ed.start,w[1]-ed.start,w[2]])}
+function getPages(W,H){if(!pagesCache)pagesCache=layoutPages(relWords(),S(),W,H,ed.end-ed.start);return pagesCache}
+function draw(t){
+  const e=ed.edit,[W,H]=META.aspects[e.aspect],q=cv.width/W,sw=ed.src.width,sh=ed.src.height;
+  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);ctx.fillStyle='#000';ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.setTransform(q,0,0,q,0,0);
+  const [x,y,w,h]=frameRect(sw,sh,W,H,e);
+  const ready=vid.readyState>=2;
+  if(ready&&!(x<=0.5&&y<=0.5&&x+w>=W-0.5&&y+h>=H-0.5)){ // blurred background like the export
+    const c=Math.max(W/sw,H/sh);ctx.save();ctx.filter=`blur(${34*q}px) brightness(0.92)`;
+    ctx.drawImage(vid,(W-sw*c)/2-40,(H-sh*c)/2-40,sw*c+80,sh*c+80);ctx.restore()}
+  if(ready)ctx.drawImage(vid,x,y,w,h);
+  const s=S();
+  if(s.enabled){const pg=getPages(W,H).find(p=>t>=p.start&&t<p.end);if(pg)drawPage(pg,t,s,W,H)}
+  if(uiPrefs.safe)drawSafe(W,H);
+  if(drag&&drag.kind==='cap'){const [l,tt,r,b]=captionSafeRect(W,H);ctx.save();ctx.setLineDash([12,8]);ctx.strokeStyle='rgba(255,90,54,.9)';ctx.lineWidth=3;ctx.strokeRect(l,tt,r-l,b-tt);ctx.restore()}
+}
+function hexA(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
+function roundedPath(x0,y0,x1,y1,r){r=Math.max(0,Math.min(r,(x1-x0)/2,(y1-y0)/2));const R=Math.round;
+  ctx.beginPath();ctx.moveTo(R(x0+r),R(y0));ctx.lineTo(R(x1-r),R(y0));ctx.bezierCurveTo(R(x1),R(y0),R(x1),R(y0),R(x1),R(y0+r));
+  ctx.lineTo(R(x1),R(y1-r));ctx.bezierCurveTo(R(x1),R(y1),R(x1),R(y1),R(x1-r),R(y1));ctx.lineTo(R(x0+r),R(y1));
+  ctx.bezierCurveTo(R(x0),R(y1),R(x0),R(y1),R(x0),R(y1-r));ctx.lineTo(R(x0),R(y0+r));ctx.bezierCurveTo(R(x0),R(y0),R(x0),R(y0),R(x0+r),R(y0));ctx.closePath()}
+function drawPage(pg,t,s,W,H){
+  const scale=Math.min(W,H)/1080,anim=s.anim,tp=t-pg.start;
+  let alpha=1,sc=1,dy=0;
+  if(anim==='fade')alpha=Math.min(1,tp/0.12,(pg.end-t)/0.08);
+  if(anim==='pop'&&tp<0.11)sc=0.7+0.3*tp/0.11;
+  if(anim==='slide'){const k=Math.min(1,tp/0.16);dy=0.035*H*(1-k);alpha=Math.min(1,tp/0.1)}
+  alpha=Math.max(0,alpha);
+  const flat=pg.lines.flat();let active=0;flat.forEach((w,i)=>{if(i===0||w.s<=t)active=i});
+  ctx.save();
+  if(pg.box){ctx.save();ctx.globalAlpha=(anim==='fade'?alpha:1);ctx.fillStyle=hexA(s.box_color,s.box_opacity);roundedPath(...pg.box,pg.em*0.22);ctx.fill();ctx.restore()}
+  ctx.globalAlpha=alpha;ctx.translate(pg.cx,pg.cy+dy);ctx.scale(sc,sc);ctx.translate(-pg.cx,-pg.cy);
+  // ask for exactly the face the export uses (regular or bold file); "900" would make browsers pick e.g. Arial Black
+  ctx.font=`${s.weight>=600?700:400} ${pg.em}px "${s.font}"`;ctx.textBaseline='alphabetic';ctx.lineJoin='round';ctx.miterLimit=2;
+  const ol=s.outline*scale,sd=s.shadow*scale,space=ctx.measureText(' ').width;let k=0;
+  const top=pg.cy-pg.block_h/2;
+  pg.lines.forEach((ln,li)=>{
+    const ws=ln.map(w=>ctx.measureText(w.t).width),tw=ws.reduce((a,b)=>a+b,0)+space*(ln.length-1);
+    let x=pg.cx-tw/2;const by=top+li*pg.line_h+pg.asc*pg.em;
+    ln.forEach((w,wi)=>{
+      const hidden=anim==='typewriter'&&k>active, hi=(anim==='karaoke'||anim==='typewriter')&&k===active;
+      if(!hidden){
+        if(sd>0){ctx.fillStyle='rgba(0,0,0,.5)';ctx.strokeStyle='rgba(0,0,0,.5)';if(ol>0){ctx.lineWidth=2*ol;ctx.strokeText(w.t,x+sd,by+sd)}ctx.fillText(w.t,x+sd,by+sd)}
+        if(ol>0){ctx.lineWidth=2*ol;ctx.strokeStyle='#000';ctx.strokeText(w.t,x,by)}
+        ctx.fillStyle=hi?s.highlight:s.color;ctx.fillText(w.t,x,by);
+      }
+      x+=ws[wi]+space;k++;
+    });
+  });
+  ctx.restore();
+}
+function drawSafe(W,H){
+  ctx.save();ctx.lineWidth=2/ (cv.width/W);
+  const A=META.aspects['9:16'];
+  if(W===A[0]&&H===A[1]){
+    const zs=uiPrefs.plat==='all'?Object.entries(META.safe_zones):[[uiPrefs.plat,META.safe_zones[uiPrefs.plat]]];
+    const col={tiktok:'#25F4EE',reels:'#E1306C',shorts:'#FF0033'};
+    zs.forEach(([n,z])=>{ctx.strokeStyle=col[n];ctx.setLineDash([10,8]);ctx.strokeRect(z.left,z.top,W-z.left-z.right,H-z.top-z.bottom);
+      if(uiPrefs.plat!=='all'){ctx.fillStyle='rgba(0,0,0,.35)';ctx.fillRect(0,0,W,z.top);ctx.fillRect(0,H-z.bottom,W,z.bottom);ctx.fillRect(W-z.right,z.top,z.right,H-z.top-z.bottom);ctx.fillRect(0,z.top,z.left,H-z.top-z.bottom)}
+      ctx.setLineDash([]);ctx.fillStyle=col[n];ctx.font='700 30px system-ui';
+      ctx.fillText({tiktok:'TikTok',reels:'Reels',shorts:'Shorts'}[n],z.left+12+({tiktok:0,reels:150,shorts:280}[n]),z.top+40)});
+  }else{const m=META.generic_margin;ctx.strokeStyle='rgba(255,255,255,.6)';ctx.setLineDash([10,8]);ctx.strokeRect(W*m,H*m,W*(1-2*m),H*(1-2*m))}
+  ctx.restore();
+}
+
+// ---------- drag: captions (vertical) / video (fill pan, manual move) / wheel zoom
+let drag=null;
+function canvasPt(ev){const r=cv.getBoundingClientRect(),[W,H]=META.aspects[ed.edit.aspect];return [(ev.clientX-r.left)/r.width*W,(ev.clientY-r.top)/r.height*H]}
+function capHit(px,py){
+  const s=S();if(!s.enabled)return false;const [W,H]=META.aspects[ed.edit.aspect],[l,,r]=captionSafeRect(W,H);
+  const pages=getPages(W,H);if(!pages.length)return false;const t=vid.currentTime-ed.start;
+  const pg=pages.find(p=>t>=p.start&&t<p.end)||pages.reduce((a,p)=>Math.abs(p.start-t)<Math.abs(a.start-t)?p:a);
+  return px>=l&&px<=r&&Math.abs(py-pg.cy)<=pg.half+20;
+}
+cv.addEventListener('pointerdown',ev=>{
+  const [px,py]=canvasPt(ev),e=ed.edit;
+  if(capHit(px,py))drag={kind:'cap',y0:py,off0:S().offset};
+  else if(e.framing!=='fit')drag={kind:'vid',x0:px,y0:py,e0:{...e}};
+  else return;
+  cv.setPointerCapture(ev.pointerId);cv.classList.add('grabbing');
+});
+cv.addEventListener('pointermove',ev=>{
+  const [px,py]=canvasPt(ev);
+  if(!drag){cv.className=capHit(px,py)?'ns':ed.edit.framing!=='fit'?'grab':'';return}
+  const [W,H]=META.aspects[ed.edit.aspect],e=ed.edit;
+  if(drag.kind==='cap'){S().offset=Math.max(-0.5,Math.min(0.5,drag.off0+(py-drag.y0)/H));pagesCache=null}
+  else if(e.framing==='manual'){e.off_x=drag.e0.off_x+(px-drag.x0)/W;e.off_y=drag.e0.off_y+(py-drag.y0)/H}
+  else{const [,,w,h]=frameRect(ed.src.width,ed.src.height,W,H,e);
+    if(w>W)e.pan_x=Math.max(0,Math.min(1,drag.e0.pan_x-(px-drag.x0)/(w-W)));
+    if(h>H)e.pan_y=Math.max(0,Math.min(1,drag.e0.pan_y-(py-drag.y0)/(h-H)))}
+  ed.dirty||setDirty(true);ed.dirty=true;$('ed-dirty').style.display='inline';
+});
+const endDrag=()=>{if(!drag)return;
+  if(drag.kind==='cap'){ // snap the stored offset to where the captions can actually go, so the slider stays meaningful
+    const [W,H]=META.aspects[ed.edit.aspect],s=S(),pages=getPages(W,H);
+    if(pages.length){const p=pages[0],[,t,,b]=captionSafeRect(W,H),base=s.position==='top'?t+p.half:s.position==='middle'?(t+b)/2:b-p.half;
+      s.offset=Math.max(-0.5,Math.min(0.5,(p.cy-base)/H));pagesCache=null}}
+  drag=null;cv.classList.remove('grabbing');syncControls()};
+cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
+cv.addEventListener('wheel',ev=>{if(ed.edit.framing!=='manual')return;ev.preventDefault();
+  ed.edit.zoom=Math.max(0.25,Math.min(4,ed.edit.zoom*(ev.deltaY<0?1.06:1/1.06)));syncControls();setDirty(true)},{passive:false});
+// keyboard nudging of the video in fill/manual (accessibility alternative to dragging)
+cv.tabIndex=0;
+cv.addEventListener('keydown',ev=>{const e=ed.edit,st=ev.shiftKey?0.05:0.01,m={ArrowLeft:[-st,0],ArrowRight:[st,0],ArrowUp:[0,-st],ArrowDown:[0,st]}[ev.key];
+  if(!m||e.framing==='fit')return;ev.preventDefault();
+  if(e.framing==='manual'){e.off_x+=m[0];e.off_y+=m[1]}else{e.pan_x=Math.max(0,Math.min(1,e.pan_x+m[0]*2));e.pan_y=Math.max(0,Math.min(1,e.pan_y+m[1]*2))}
+  setDirty(true)});
+window.addEventListener('beforeunload',e=>{if(($('ed').open&&ed.dirty)||document.querySelector('.card.dirty')){e.preventDefault();e.returnValue=''}});
 </script>
 </body>
 </html>

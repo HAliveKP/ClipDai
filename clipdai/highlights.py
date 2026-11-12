@@ -189,7 +189,9 @@ def find_clips(s, segments: list[Segment], wav: Path, total: float, context: str
     n = n or s.clips_per_video
     clips: list[Clip] = []
     if llm.available(s):
-        clips = llm_pick(s, segments, total, n, s.clip_min, s.clip_max, context)
+        # Groq's free tier caps a request at ~8k tokens/minute: a 25-minute chunk is too big, 10 minutes fits
+        chunk = 600 if s.llm_provider == "groq" else 1500
+        clips = llm_pick(s, segments, total, n, s.clip_min, s.clip_max, context, chunk_seconds=chunk)
     if not clips:
         if llm.available(s):
             log("[highlights] LLM returned nothing, falling back to offline heuristic")

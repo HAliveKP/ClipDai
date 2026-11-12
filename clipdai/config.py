@@ -33,7 +33,7 @@ class Settings:
         self.gemini_key = _env("GEMINI_API_KEY")
         self.gemini_model = _env("GEMINI_MODEL", "gemini-2.5-flash")
         self.groq_key = _env("GROQ_API_KEY")
-        self.groq_model = _env("GROQ_MODEL", "llama-3.3-70b-versatile")
+        self.groq_model = _env("GROQ_MODEL", "openai/gpt-oss-120b")
         self.ollama_url = _env("OLLAMA_URL", "http://localhost:11434")
         self.ollama_model = _env("OLLAMA_MODEL")
         self.openai_key = _env("OPENAI_API_KEY")

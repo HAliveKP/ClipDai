@@ -25,7 +25,17 @@ CREATE TABLE IF NOT EXISTS jobs(
 CREATE TABLE IF NOT EXISTS watches(
   id INTEGER PRIMARY KEY, url TEXT UNIQUE, last_checked REAL
 );
+CREATE TABLE IF NOT EXISTS presets(
+  id INTEGER PRIMARY KEY, name TEXT UNIQUE, style TEXT, created REAL
+);
 """
+
+# columns added after the first release; created on open so existing databases keep working
+MIGRATIONS = {
+    "sources": {"path": "TEXT", "width": "INTEGER", "height": "INTEGER", "duration": "REAL", "progress": "TEXT"},
+    "clips": {"edit": "TEXT", "words": "TEXT", "render_status": "TEXT DEFAULT ''", "render_error": "TEXT",
+              "version": "INTEGER DEFAULT 0"},
+}
 
 
 class DB:
@@ -35,6 +45,11 @@ class DB:
         self.c.row_factory = sqlite3.Row
         self.c.execute("PRAGMA journal_mode=WAL")
         self.c.executescript(SCHEMA)
+        for table, cols in MIGRATIONS.items():
+            have = {r["name"] for r in self.c.execute(f"PRAGMA table_info({table})")}
+            for col, typ in cols.items():
+                if col not in have:
+                    self.c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         self.c.commit()
 
     # ---- sources
@@ -59,12 +74,15 @@ class DB:
         return self.c.execute("SELECT * FROM sources WHERE status='new' ORDER BY id").fetchall()
 
     # ---- clips
-    def add_clip(self, source_id, path, c, status) -> int:
+    def source(self, sid):
+        return self.c.execute("SELECT * FROM sources WHERE id=?", (sid,)).fetchone()
+
+    def add_clip(self, source_id, path, c, status, edit: dict | None = None) -> int:
         cur = self.c.execute(
-            "INSERT INTO clips(source_id,path,start,end,score,title,caption,hashtags,reason,status,created)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO clips(source_id,path,start,end,score,title,caption,hashtags,reason,status,created,edit)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (source_id, str(path), c.start, c.end, c.score, c.title, c.caption,
-             json.dumps(c.hashtags), c.reason, status, time.time()))
+             json.dumps(c.hashtags), c.reason, status, time.time(), json.dumps(edit) if edit else None))
         self.c.commit()
         return cur.lastrowid
 
@@ -79,6 +97,22 @@ class DB:
     def set_clip(self, cid, **kw):
         sets = ",".join(f"{k}=?" for k in kw)
         self.c.execute(f"UPDATE clips SET {sets} WHERE id=?", (*kw.values(), cid))
+        self.c.commit()
+
+    def render_queue(self):
+        return self.c.execute("SELECT * FROM clips WHERE render_status='queued' ORDER BY id").fetchall()
+
+    # ---- caption presets
+    def presets(self):
+        return self.c.execute("SELECT * FROM presets ORDER BY name").fetchall()
+
+    def save_preset(self, name, style: dict):
+        self.c.execute("INSERT INTO presets(name,style,created) VALUES(?,?,?) "
+                       "ON CONFLICT(name) DO UPDATE SET style=excluded.style", (name, json.dumps(style), time.time()))
+        self.c.commit()
+
+    def del_preset(self, name):
+        self.c.execute("DELETE FROM presets WHERE name=?", (name,))
         self.c.commit()
 
     # ---- jobs
@@ -96,6 +130,9 @@ class DB:
         sets = ",".join(f"{k}=?" for k in kw)
         self.c.execute(f"UPDATE jobs SET {sets} WHERE id=?", (*kw.values(), jid))
         self.c.commit()
+
+    def job(self, jid):
+        return self.c.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
 
     def jobs_for_clip(self, cid):
         return self.c.execute("SELECT * FROM jobs WHERE clip_id=?", (cid,)).fetchall()
