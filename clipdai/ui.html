@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClipForge</title>
+<style>
+:root{--bg:#0e1116;--panel:#171b22;--line:#262c36;--text:#e8ecf2;--mute:#8a94a6;--acc:#ff5a36;--ok:#2fbf71;--warn:#e5a23a;--bad:#e5534b}
+@media (prefers-color-scheme: light){:root{--bg:#f5f6f8;--panel:#fff;--line:#dfe3ea;--text:#171b22;--mute:#667085}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;gap:16px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
+h1{font-size:18px;margin:0;letter-spacing:.2px}h1 b{color:var(--acc)}
+.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--panel);border:1px solid var(--line);color:var(--mute)}
+main{max-width:1280px;margin:0 auto;padding:20px}
+.bar{display:flex;gap:8px;flex-wrap:wrap}
+input,textarea{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font:inherit;width:100%}
+input:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:-1px}
+button{background:var(--acc);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+button.ok{background:var(--ok)}button.bad{background:transparent;color:var(--bad);border:1px solid var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:grid;grid-template-columns:1fr 130px 130px auto;gap:8px;margin-bottom:8px}
+@media(max-width:700px){.row{grid-template-columns:1fr 1fr}.row input:first-child{grid-column:1/3}}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:26px 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.card video{width:100%;aspect-ratio:9/16;max-height:440px;background:#000;object-fit:contain}
+.card .body{padding:12px;display:flex;flex-direction:column;gap:8px}
+.meta{display:flex;justify-content:space-between;font-size:12px;color:var(--mute)}
+.score{color:var(--acc);font-weight:700}
+textarea{min-height:64px;resize:vertical}
+.btns{display:flex;gap:8px}.btns button{flex:1}
+.tag{font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600}
+.t-pending{background:#3a2e12;color:var(--warn)}.t-approved{background:#12301f;color:var(--ok)}.t-rejected{background:#3a1816;color:var(--bad)}
+.t-new,.t-working{background:#16283d;color:#6db0ff}.t-done{background:#12301f;color:var(--ok)}.t-error{background:#3a1816;color:var(--bad)}.t-skipped{background:var(--line);color:var(--mute)}
+.t-queued{background:#16283d;color:#6db0ff}.t-failed{background:#3a1816;color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{color:var(--mute);font-weight:600}
+.empty{color:var(--mute);padding:30px;text-align:center;border:1px dashed var(--line);border-radius:12px}
+.err{color:var(--bad);font-size:12px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}@media(max-width:900px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Clip<b>Forge</b></h1>
+  <span class="pill" id="p-llm"></span><span class="pill" id="p-mode"></span><span class="pill" id="p-route"></span>
+</header>
+<main>
+  <h2 style="margin-top:0">1 · Paste a link — it downloads and clips by itself</h2>
+  <div class="row">
+    <input id="url" placeholder="Twitch / Kick / YouTube VOD or any video link (or a file path)">
+    <input id="start" placeholder="start (optional) 1:20:00">
+    <input id="end" placeholder="end (optional)">
+    <button id="add">Make clips</button>
+  </div>
+  <div id="addmsg" class="err"></div>
+
+  <div class="two">
+    <div>
+      <h2>Auto-download · watched channels</h2>
+      <div class="bar" style="margin-bottom:8px"><input id="wurl" placeholder="https://www.twitch.tv/streamer  ·  YouTube channel  ·  Kick channel" style="flex:1">
+        <button class="ghost" id="wadd">Watch</button></div>
+      <div id="watches"></div>
+    </div>
+    <div>
+      <h2>Sources</h2>
+      <div id="sources"></div>
+    </div>
+  </div>
+
+  <h2>2 · Review clips</h2>
+  <div id="clips" class="grid"></div>
+
+  <h2>3 · Posting queue</h2>
+  <div id="jobs"></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(r=>r.json());
+const fmt=t=>{t=Math.round(t);const h=Math.floor(t/3600),m=Math.floor(t/60)%60,s=t%60;return (h?h+':'+String(m).padStart(2,'0'):m)+':'+String(s).padStart(2,'0')};
+const when=ts=>new Date(ts*1000).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+let editing=false;
+document.addEventListener('focusin',e=>{if(e.target.closest('.card'))editing=true});
+document.addEventListener('focusout',()=>{editing=false});
+
+$('add').onclick=async()=>{
+  const r=await api('/api/add',{url:$('url').value,start:$('start').value,end:$('end').value});
+  $('addmsg').textContent=r.error||''; if(!r.error){$('url').value='';$('start').value='';$('end').value=''} load();
+};
+$('wadd').onclick=async()=>{ if($('wurl').value.trim()){await api('/api/watch',{url:$('wurl').value});$('wurl').value='';load()} };
+
+async function act(id,action){
+  const c=document.querySelector(`[data-id="${id}"]`);
+  const body={action,title:c.querySelector('.f-title').value,caption:c.querySelector('.f-cap').value,hashtags:c.querySelector('.f-tags').value};
+  await api('/api/clip/'+id,body); editing=false; load();
+}
+async function unwatch(u){await api('/api/watch',{url:u,remove:true});load()}
+
+function render(st){
+  $('p-llm').textContent='AI: '+(st.config.llm==='none'?'offline heuristic':st.config.llm);
+  $('p-mode').textContent=st.config.auto_approve?'auto-approve ON':'review before posting';
+  $('p-route').textContent=Object.entries(st.config.route).map(([k,v])=>k+'→'+v).join('  ');
+
+  $('watches').innerHTML=st.watches.length?'<table>'+st.watches.map(w=>`<tr><td>${esc(w.url)}</td><td style="width:60px"><button class="ghost" data-u="${esc(w.url)}" onclick="unwatch(this.dataset.u)">stop</button></td></tr>`).join('')+'</table>':'<div class="empty">No channels watched yet.</div>';
+  $('sources').innerHTML=st.sources.length?'<table>'+st.sources.slice(0,8).map(s=>`<tr><td>${esc(s.title||s.url).slice(0,70)}<div class="err">${esc(s.error)}</div></td><td style="width:80px"><span class="tag t-${s.status}">${s.status}</span></td></tr>`).join('')+'</table>':'<div class="empty">Nothing yet.</div>';
+
+  if(!editing){
+    const clips=st.clips.filter(c=>c.status!=='rejected');
+    $('clips').innerHTML=clips.length?clips.map(c=>{
+      const file=c.path.split(/[\\/]/).pop();
+      const tags=JSON.parse(c.hashtags||'[]').join(' ');
+      return `<div class="card" data-id="${c.id}">
+        <video src="/media/${encodeURIComponent(file)}" poster="/media/${encodeURIComponent(file.replace(/\.mp4$/,'.jpg'))}" controls preload="none" playsinline></video>
+        <div class="body">
+          <div class="meta"><span>${fmt(c.start)}–${fmt(c.end)} · ${Math.round(c.end-c.start)}s</span><span><span class="score">${Math.round(c.score)}</span> · <span class="tag t-${c.status}">${c.status}</span></span></div>
+          <input class="f-title" value="${esc(c.title)}" maxlength="100" placeholder="Title / headline">
+          <textarea class="f-cap" placeholder="Caption">${esc(c.caption)}</textarea>
+          <input class="f-tags" value="${esc(tags)}" placeholder="#hashtags">
+          <div class="meta">${esc(c.reason)}</div>
+          <div class="btns">${c.status==='pending'?`<button class="ok" onclick="act(${c.id},'approve')">Approve & queue</button><button class="bad" onclick="act(${c.id},'reject')">Reject</button>`
+            :`<button class="ghost" onclick="act(${c.id},'save')">Save edits</button><button class="ghost" onclick="act(${c.id},'post_now')">Post now</button>`}</div>
+        </div></div>`}).join(''):'<div class="empty" style="grid-column:1/-1">No clips yet. Paste a link above.</div>';
+  }
+  const byClip={};st.clips.forEach(c=>byClip[c.id]=c);
+  $('jobs').innerHTML=st.jobs.length?'<table><tr><th>When</th><th>Clip</th><th>Platform</th><th>Status</th><th>Result</th></tr>'+st.jobs.map(j=>`<tr><td>${when(j.due)}</td><td>${esc((byClip[j.clip_id]||{}).title||j.clip_id).slice(0,50)}</td><td>${j.platform}</td><td><span class="tag t-${j.status}">${j.status}</span></td><td>${esc(j.result||'')}</td></tr>`).join('')+'</table>':'<div class="empty">Approved clips appear here with their scheduled post time.</div>';
+}
+async function load(){ try{ render(await (await fetch('/api/state')).json()) }catch(e){} }
+load(); setInterval(load,4000);
+</script>
+</body>
+</html>
