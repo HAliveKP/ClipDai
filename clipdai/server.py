@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import mimetypes
 import os
 import threading
@@ -13,6 +14,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import fontmetrics, layout, pipeline, watch
 from . import cuts
+from . import brand as brand_module
+from . import llm
 from .db import DB
 from .utils import log, parse_time
 
@@ -146,6 +149,12 @@ class Handler(BaseHTTPRequestHandler):
                 streamer = qs.get("streamer", [None])[0]
                 self._json({"presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
                               for r in db.split_presets(streamer)]})
+            elif p == "/api/brand":
+                bk = brand_module.load_brand(self.s.data_dir)
+                logo = str(bk.get("logo") or "")
+                self._json({**bk, "logo_url": ("/brand/logo.png" if (logo and (self.s.data_dir / logo).exists()) else "")})
+            elif p == "/brand/logo.png":
+                self._file(self.s.data_dir / "brand" / "logo.png")
             elif p.startswith("/api/editor/"):
                 db = DB(self.s.db_path)
                 self._json(self._editor(db, self._id(p)))
@@ -187,6 +196,7 @@ class Handler(BaseHTTPRequestHandler):
             "presets": {r["name"]: json.loads(r["style"]) for r in db.presets()},
             "split_presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
                               for r in db.split_presets()],
+            "brand": brand_module.load_brand(self.s.data_dir),
             "consts": {"safety": layout.SAFETY, "unknown_ascii": layout.UNKNOWN_ASCII,
                        "unknown_other": layout.UNKNOWN_OTHER},
         }
@@ -330,6 +340,43 @@ class Handler(BaseHTTPRequestHandler):
                 db.save_split_preset(name, streamer, boxes, ratio)
             self._json({"ok": True, "presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
                               for r in db.split_presets(streamer or None)]})
+        if p == "/api/brand":
+            bk = d.get("brand") or {}
+            logo = bk.get("logo") or ""
+            if str(logo).startswith("data:"):
+                try:
+                    _, b64 = str(logo).split(",", 1)
+                    raw = base64.b64decode(b64)
+                    self.s.data_dir.mkdir(parents=True, exist_ok=True)
+                    (self.s.data_dir / "brand").mkdir(parents=True, exist_ok=True)
+                    (self.s.data_dir / "brand" / "logo.png").write_bytes(raw)
+                    bk = {**bk, "logo": "brand/logo.png"}
+                except Exception as e:
+                    raise ApiError(f"could not save logo image: {e}")
+            saved = brand_module.save_brand(self.s.data_dir, bk)
+            return {"ok": True, "brand": saved}
+        if p == "/api/hook-gen":
+            if not llm.available(self.s):
+                raise ApiError("No LLM provider configured (GEMINI_API_KEY / GROQ_API_KEY / OLLAMA_MODEL ...).")
+            title = str(d.get("title") or "").strip()[:200]
+            transcript = str(d.get("transcript") or "").strip()[:1500]
+            try:
+                data = llm.ask_json(
+                    self.s,
+                    "You write hook titles for short-form video (TikTok/Reels/Shorts). JSON only.",
+                    f"CLIP TITLE: {title}\nCLIP TRANSCRIPT START: {transcript}\n"
+                    "Write ONE hooky title of at most 8 words that would make someone stop scrolling. "
+                    "Return {\"hook\":\"...\"}.")
+                hook = str(data.get("hook", "") or "").strip()
+                if not hook:
+                    raise ApiError("LLM returned an empty hook.")
+                if len(hook.split()) > 8:
+                    hook = " ".join(hook.split()[:8])
+                return {"ok": True, "hook": hook}
+            except ApiError:
+                raise
+            except Exception as e:
+                raise ApiError(f"hook generation failed: {e}")
         if p == "/api/preview-cuts":
             raw_words = d.get("words") or []
             words = []

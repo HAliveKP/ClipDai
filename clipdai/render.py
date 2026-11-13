@@ -11,10 +11,10 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from . import fontmetrics, layout, tracking, cuts
+from . import fontmetrics, layout, tracking, cuts, brand as brand_module
 from .highlights import Clip
 from .transcribe import Segment
-from .utils import run
+from .utils import run, log
 
 
 def _ffmpeg_size(path: Path) -> tuple[int, int]:
@@ -144,8 +144,99 @@ def _ass_part(tdir: Path, rel: list, style: dict, W: int, H: int, dur: float, ba
     return base_vf + ";[base]subtitles=caps.ass:fontsdir=fonts[vout]", "vout"
 
 
+def _ass_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+
+
+def _ass_color(hex_color: str) -> str:
+    rgb = str(hex_color).lstrip("#")
+    return f"&H00{rgb[4:6]}{rgb[2:4]}{rgb[0:2]}&"
+
+
+def _hook_ass(hook, W: int, H: int, color: str) -> str:
+    """ASS with a single top-centered hook-title event lasting ``hook.duration`` seconds."""
+    size = max(20, int(round(H / 14)))
+    dur = max(min(float(hook.duration), 60.0), 0.5)
+    if hook.anim == "pop":
+        eff = "{\\an8\\t(0,300,\\fscx140\\fscy140)\\t(300,700,\\fscx100\\fscy100)}"
+    elif hook.anim == "fade":
+        eff = "{\\an8\\fad(400,400)}"
+    else:
+        eff = "{\\an8}"
+    t = _ass_escape(str(hook.title))
+    fmt = "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    t0 = f"{int(dur//3600)}:{int(dur%3600//60):02d}:{dur%60:05.2f}"
+    return ("[Script Info]\nTitle: hook\n[V4+Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour,"
+            " Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\n"
+            f"Style: hook,Arial,{size},{_ass_color(color)},&H000000&,&H00000000,&H00000000,-1,0,1,2,2,8,0,0,0,0,0\n"
+            f"[Events]\n{fmt}"
+            f"Dialogue: 0,0:00:00.00,{t},hook,,0,0,0,,{eff}{t}")
+
+
+def _esc_path(p: str) -> str:
+    # single-quote the path for ffmpeg's movie= parser; escape ' and \ inside quotes
+    return "'" + p.replace("'", "'\\''").replace("\\", "\\\\") + "'"
+
+
+def _png_size(p: Path) -> tuple[int, int]:
+    try:
+        raw = p.read_bytes()
+        if raw[:8] == b"\x89PNG\r\n\x1a\n" and len(raw) >= 24:
+            import struct
+            return struct.unpack(">II", raw[16:24])
+    except OSError:
+        pass
+    return (0, 0)
+
+
+def _wm_filter(brand: dict, W: int, H: int, data_dir: Path | None, base_label: str,
+               tdir: Path | None) -> tuple[str, str]:
+    """ffmpeg filter chain appending a logo watermark overlay after ``base_label``."""
+    logo = str(brand.get("logo") or "").strip()
+    if not logo:
+        return "", base_label
+    src_lp = Path(logo)
+    if not src_lp.is_absolute() and data_dir is not None:
+        src_lp = data_dir / src_lp
+    if not src_lp.exists():
+        log(f"[brand] logo not found: {src_lp}; skipping watermark")
+        return "", base_label
+    if tdir is not None:
+        lp = tdir / "wm_logo.png"
+        try:
+            shutil.copy(src_lp, lp)
+        except OSError:
+            lp = src_lp
+    else:
+        lp = src_lp
+    scale_w = max(2, int(round(W * float(brand.get("wm_scale") or 0.10))))
+    lw, lh = _png_size(lp)
+    scale_h = max(2, round(scale_w * lh / lw)) if lw and lh else scale_w
+    opacity = float(brand.get("wm_opacity") or 0.55)
+    opacity = min(1.0, max(0.0, opacity))
+    margin = int(round(min(W, H) * 0.04))
+    pos = str(brand.get("wm_position") or "br")
+    if pos == "tl":
+        x, y = margin, margin
+    elif pos == "tr":
+        x, y = W - scale_w - margin, margin
+    elif pos == "bl":
+        x, y = margin, H - scale_h - margin
+    elif pos == "center":
+        x, y = (W - scale_w) // 2, (H - scale_h) // 2
+    else:  # br
+        x, y = W - scale_w - margin, H - scale_h - margin
+    x = max(0, min(x, W - scale_w)); y = max(0, min(y, H - scale_h))
+    chain = (f"movie='wm_logo.png'[wm];"
+             f"[wm]scale={scale_w}:{scale_h}:flags=bicubic[wml];"
+             f"[wml]colorchannelmixer=aa={opacity}[wmi];"
+             f"{base_label}[wmi]overlay={x}:{y}:format=auto[final]")
+    return chain, "final"
+
+
 def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, words: list, edit: dict,
-                out: Path) -> Path:
+                out: Path, data_dir: Path | None = None) -> Path:
     """words: absolute [s, e, text] (source time). edit: layout.normalize_edit() output.
 
     When edit["cuts"] (keep segments, clip-relative seconds) is present the source
@@ -210,26 +301,79 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
             all_ = tdir / "all.mp4"
             run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
                  "-i", str(pl), "-c", "copy", str(all_)])
-            # second pass: burn captions + loudnorm on the assembled timeline
-            vf2 = ""
+            # second pass: burn captions + hook title on the assembled timeline
+            brand = edit.get("brand") or {}
+            hook = brand_module.hook_style(brand)
+            chain: list[str] = []
+            label = "[0:v]"
+            extra_inputs: list[str] = []
             ass = layout.build_ass(rel, style, W, H, dur)
             if ass:
-                    (tdir / "caps.ass").write_text(ass, encoding="utf-8")
-                    fdir = tdir / "fonts"; fdir.mkdir()
-                    for name in set(fontmetrics.FONTS.get(style["font"], ())):
-                        f = fontmetrics._find(name)
-                        if f:
-                            shutil.copy(f, fdir / f.name)
-                    vf2 = f"subtitles=caps.ass:fontsdir=fonts"
-                    last2 = "vout"  # not used; single output
+                (tdir / "caps.ass").write_text(ass, encoding="utf-8")
+                fdir = tdir / "fonts"; fdir.mkdir()
+                for name in set(fontmetrics.FONTS.get(style["font"], ())):
+                    f = fontmetrics._find(name)
+                    if f:
+                        shutil.copy(f, fdir / f.name)
+                chain.append(f"{label}subtitles=caps.ass:fontsdir=fonts[v]")
+                label = "[v]"
+            if hook.enabled and hook.title:
+                (tdir / "hook.ass").write_text(_hook_ass(hook, W, H,
+                                                        brand.get("primary", "#ff5a36")), encoding="utf-8")
+                chain.append(f"{label}subtitles=hook.ass[h]")
+                label = "[h]"
+            wm_logo = str(brand.get("logo") or "").strip()
+            if wm_logo:
+                src_lp = Path(wm_logo)
+                if not src_lp.is_absolute() and data_dir is not None:
+                    src_lp = data_dir / src_lp
+                if src_lp.exists():
+                    wm_file = tdir / "wm_logo.png"
+                    try:
+                        shutil.copy(src_lp, wm_file)
+                    except OSError:
+                        wm_file = None
+                    if wm_file:
+                        lw, lh = _png_size(wm_file)
+                        scale_w = max(2, int(round(W * float(brand.get("wm_scale") or 0.10))))
+                        scale_h = max(2, round(scale_w * lh / lw)) if lw and lh else scale_w
+                        opacity = min(1.0, max(0.0, float(brand.get("wm_opacity") or 0.55)))
+                        margin = int(round(min(W, H) * 0.04))
+                        pos = str(brand.get("wm_position") or "br")
+                        if pos == "tl":
+                            x, y = margin, margin
+                        elif pos == "tr":
+                            x, y = W - scale_w - margin, margin
+                        elif pos == "bl":
+                            x, y = margin, H - scale_h - margin
+                        elif pos == "center":
+                            x, y = (W - scale_w) // 2, (H - scale_h) // 2
+                        else:
+                            x, y = W - scale_w - margin, H - scale_h - margin
+                        x = max(0, min(x, W - scale_w)); y = max(0, min(y, H - scale_h))
+                        chain.append(f"movie='wm_logo.png'[wm];"
+                                     f"[wm]scale={scale_w}:{scale_h}:flags=bicubic[wml];"
+                                     f"[wml]colorchannelmixer=aa={opacity}[wmi];"
+                                     f"{label}[wmi]overlay={x}:{y}:format=auto[o]")
+                        label = "[o]"
+                else:
+                    log(f"[brand] logo not found: {src_lp}; skipping watermark")
+            vf2 = ";".join(chain)
             fade_out = max(dur - 0.25, 0)
             af2 = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
             cmd2 = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(all_)]
+            for inp in extra_inputs:
+                cmd2 += ["-i", inp]
             if vf2:
-                cmd2 += ["-vf", vf2]
+                cmd2 += ["-filter_complex", vf2]
+                cmd2 += ["-map", label]
+            else:
+                cmd2 += ["-map", "0:v"]
+            if ha:
+                cmd2 += ["-map", "0:a:0?", "-af", af2]
             cmd2 += [
                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
-                "-af", af2, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
+                "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
                 str(out.resolve()),
             ]
             run(cmd2, cwd=tdir)
@@ -237,6 +381,16 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
         else:
             vf = video_filter(sw, sh, W, H, edit)
             vf, last = _ass_part(tdir, rel, style, W, H, dur, vf, "base")
+            brand = edit.get("brand") or {}
+            hook = brand_module.hook_style(brand)
+            if hook.enabled and hook.title:
+                (tdir / "hook.ass").write_text(_hook_ass(hook, W, H,
+                                                        brand.get("primary", "#ff5a36")), encoding="utf-8")
+                vf += f";[{last}]subtitles=hook.ass[hout]"
+                last = "hout"
+            wm_chain, last = _wm_filter(brand, W, H, data_dir, f"[{last}]", tdir)
+            if wm_chain:
+                vf += ";" + wm_chain
             fade_out = max(dur - 0.25, 0)
             af = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
             audio_map = ("-map", "0:a:0?") if _has_audio(src) else ()

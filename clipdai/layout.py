@@ -295,6 +295,8 @@ def normalize_edit(d: dict | None) -> dict:
     out["cut_fade"] = _num(d.get("cut_fade"), 0.0, 2, out["cut_fade"])
     c = d.get("cuts")
     out["cuts"] = c if (c is None or isinstance(c, list)) else None
+    b = d.get("brand")
+    out["brand"] = b if isinstance(b, dict) else None
     out["captions"] = normalize_style(d.get("captions"))
     return out
 

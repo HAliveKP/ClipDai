@@ -332,6 +332,7 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
           <button role="tab" id="tab-style" aria-controls="p-style" aria-selected="true">Captions</button>
           <button role="tab" id="tab-text" aria-controls="p-text" aria-selected="false">Text &amp; timing</button>
           <button role="tab" id="tab-clip" aria-controls="p-clip" aria-selected="false">Trim</button>
+          <button role="tab" id="tab-brand" aria-controls="p-brand" aria-selected="false">Brand</button>
         </div>
         <div class="panel" id="p-style" role="tabpanel" aria-labelledby="tab-style">
           <fieldset><legend>Style presets</legend>
@@ -379,6 +380,16 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
             <label class="chk"><input type="checkbox" id="c-uppercase"> UPPERCASE</label>
             <label class="chk"><input type="checkbox" id="c-emoji"> Keep emoji <span class="note">(exported in monochrome)</span></label>
           </fieldset>
+          <fieldset><legend>Hook title (first seconds)</legend>
+            <label class="chk"><input type="checkbox" id="hook-enabled"> Show hook title</label>
+            <div class="g2">
+              <label class="f">Hook title<input id="hook-title" placeholder="e.g. You won't believe this"></label>
+              <button class="btn ghost sm" id="hook-gen" type="button">Auto-generate hook</button>
+            </div>
+            <label class="f">Show for (s)<span class="rng"><input type="range" id="hook-duration" min="1" max="10" step="0.5"><output id="o-hook-duration"></output></span></label>
+            <label class="f">Animation<select id="hook-anim"><option value="fade">Fade in/out</option><option value="pop">Pop in</option><option value="none">None</option></select></label>
+            <div class="note">Drawn at the top center of the exported video using the brand primary color.</div>
+          </fieldset>
         </div>
         <div class="panel" id="p-text" role="tabpanel" aria-labelledby="tab-text" hidden>
           <div class="note">Words come from the clip's audio transcript (Whisper). Edit a word or its timing (seconds from the clip start), clear a word to remove it. Click a row's time to jump there.</div>
@@ -408,6 +419,21 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
             <div class="note">Cuts are applied at export on top of your trim. Deleted caption words are also cut.
               Captions are re-timed to the new timeline automatically.</div>
           </fieldset>
+        </div>
+        <div class="panel" id="p-brand" role="tabpanel" aria-labelledby="tab-brand" hidden>
+          <fieldset><legend>Logo &amp; watermark</legend>
+            <label class="f">Logo image<input type="file" id="brand-logo" accept="image/*"></label>
+            <div id="brand-logo-preview" style="width:110px;height:110px;margin:6px 0;border:1px dashed var(--line2);border-radius:8px;background:#000;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--mute)">no logo</div>
+            <label class="f">Position<select id="brand-wm-position"><option value="br">Bottom right</option><option value="bl">Bottom left</option><option value="tr">Top right</option><option value="tl">Top left</option><option value="center">Center</option></select></label>
+            <label class="f">Opacity<span class="rng"><input type="range" id="brand-wm-opacity" min="0" max="1" step="0.05"><output id="o-brand-wm-opacity"></output></span></label>
+            <label class="f">Width<span class="rng"><input type="range" id="brand-wm-scale" min="0.02" max="0.5" step="0.01"><output id="o-brand-wm-scale"></output></span></label>
+          </fieldset>
+          <fieldset><legend>Colors &amp; font</legend>
+            <div class="colors"><label>Primary<input type="color" id="brand-primary"></label><label>Secondary<input type="color" id="brand-secondary"></label></div>
+            <label class="f">Font<select id="brand-font"></select></label>
+          </fieldset>
+          <div class="g2"><button class="btn ghost sm" id="brand-save-default" type="button">Save as default brand kit</button>
+            <span class="note" id="brand-info"></span></div>
         </div>
       </div>
     </div>
@@ -692,6 +718,7 @@ async function openEditor(id){
     Object.assign(ed,{id,clip:d.clip,edit:d.edit,words:d.words,transcript:d.transcript,src:d.source,start:d.clip.start,end:d.clip.end,dirty:false});
   }catch(e){toast(esc(e.message),'err');return}
   $('ed-title').textContent=ed.clip.title||'Edit clip';
+  if(!ed.edit.brand) ed.edit.brand = JSON.parse(JSON.stringify(META.brand||{}));
   buildStaticControls();syncControls();renderWords();syncTrim();setDirty(false);
   $('cvload').style.display='flex';
   vid.src=ed.src.media;vid.currentTime=ed.start;
@@ -763,6 +790,30 @@ function buildStaticControls(){
       $('cut-info').textContent=`${r.cuts.length} cut${r.cuts.length!==1?'s':''}, ${(r.removed||0).toFixed(2)}s removed.`;
       $('cut-list').innerHTML=r.cuts.map(([a,b])=>`<div class="wr" style="font-size:12px;background:transparent"><span>${a.toFixed(2)}s &ndash; ${b.toFixed(2)}s</span><span style="color:var(--bad)">${((b-a)*1000).toFixed(0)} ms</span></div>`).join('')||'<div class="note">No cuts detected.</div>';
     }catch(e){toast(esc(e.message),'err')};}
+  $('brand-font').innerHTML=(META.fonts?Object.keys(META.fonts):[]).map(f=>`<option>${esc(f)}</option>`).join('');
+  const brandOf=()=>ed.edit.brand||{};
+  $('hook-enabled').onchange=()=>{brandOf().hook.enabled=$('hook-enabled').checked;setDirty(true)};
+  $('hook-title').addEventListener('input',()=>{brandOf().hook.title=$('hook-title').value;setDirty(true);});
+  $('hook-duration').addEventListener('input',()=>{brandOf().hook.duration=+$('hook-duration').value;syncControls();setDirty(true);});
+  $('hook-anim').onchange=()=>{brandOf().hook.anim=$('hook-anim').value;setDirty(true);};
+  $('hook-gen').onclick=async()=>{
+    const first=(ed.transcript||[]).slice(0,3).map(w=>w[2]||"").join(" ");
+    try{const r=await api('/api/hook-gen',{title:ed.clip.title||'',transcript:first});
+      $('hook-title').value=r.hook;brandOf().hook.title=r.hook;setDirty(true);toast('Hook generated.','ok')}catch(e){toast(esc(e.message),'err')};
+  };
+  $('brand-logo').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+    r.onload=ev=>{$('brand-logo-preview').style.backgroundImage=`url(${ev.target.result})`;
+      $('brand-logo-preview').textContent='';brandOf().logo=ev.target.result;setDirty(true);};
+    r.readAsDataURL(f);};
+  $('wm-position').onchange=()=>{brandOf().wm_position=$('wm-position').value;setDirty(true);};
+  $('wm-opacity').addEventListener('input',()=>{brandOf().wm_opacity=+$('wm-opacity').value;$('o-brand-wm-opacity').textContent=$('wm-opacity').value;setDirty(true);});
+  $('wm-scale').addEventListener('input',()=>{brandOf().wm_scale=+$('wm-scale').value;$('o-brand-wm-scale').textContent=$('wm-scale').value;setDirty(true);});
+  $('brand-primary').onchange=()=>{brandOf().primary=$('brand-primary').value;setDirty(true);};
+  $('brand-secondary').onchange=()=>{brandOf().secondary=$('brand-secondary').value;setDirty(true);};
+  $('brand-font').onchange=()=>{brandOf().font=$('brand-font').value;setDirty(true);};
+  $('brand-save-default').onclick=async()=>{
+    try{const r=await api('/api/brand',{brand:ed.edit.brand});META.brand=r.brand;toast('Default brand kit saved.','ok')}catch(e){toast(esc(e.message),'err')};
+  };
 }
 async function loadSplitPresets(streamer){try{const r=await api('/api/split-presets?streamer='+encodeURIComponent(streamer||''));
   META.split_presets=r.presets;fillSplitPresets(streamer)}catch(e){}}
@@ -805,6 +856,15 @@ function syncControls(){
   $('cut-silence').checked=!!e.cut_silence;$('cut-fillers').checked=!!e.cut_fillers;
   $('cut-threshold').value=e.silence_threshold;$('o-cut-threshold').textContent=e.silence_threshold+'s';
   $('cut-fillers-list').value=(e.filler_words||[]).join(', ');
+  const b=e.brand||{},hk=b.hook||{};
+  $('hook-enabled').checked=!!hk.enabled;$('hook-title').value=hk.title||'';
+  $('hook-duration').value=hk.duration||3;$('o-hook-duration').textContent=(hk.duration||3)+'s';
+  $('hook-anim').value=hk.anim||'fade';
+  $('wm-position').value=b.wm_position||'br';
+  $('wm-opacity').value=b.wm_opacity??0.55;$('o-brand-wm-opacity').textContent=(b.wm_opacity??0.55).toFixed(2);
+  $('wm-scale').value=b.wm_scale??0.10;$('o-brand-wm-scale').textContent=(b.wm_scale??0.10);
+  $('brand-primary').value=b.primary||'#ff5a36';$('brand-secondary').value=b.secondary||'#6db0ff';
+  $('brand-font').value=b.font||'Arial';
   const [W,H]=e.framing==='split'?[1080,1920]:META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
   // keep the canvas element at export ratio; internal resolution capped for speed
   const q=Math.min(1,900/Math.max(W,H));if(cv.width!==Math.round(W*q)||cv.height!==Math.round(H*q)){cv.width=Math.round(W*q);cv.height=Math.round(H*q)}
@@ -947,7 +1007,7 @@ function clampBox(b){
   return b;}
 function drawSplit(t){
   const f=splitFit();const e=ed.edit;const [W,H]=[f.W,f.H];
-  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,f.cv.width,f.cv.height);
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,f.W,f.H);
   ctx.setTransform(f.q,0,0,f.q,0,0);
   const ready=vid.readyState>=2;
   if(ready){
@@ -964,8 +1024,10 @@ function drawSplit(t){
   }
   const s=S();
   if(s.enabled){const pg=getPages(W,H).find(p=>t>=p.start&&t<p.end);if(pg)drawPage(pg,t,s,W,H)}
+  drawHook(t);
   if(uiPrefs.safe)drawSafe(W,H);
 }
+function draw(t){
   const e=ed.edit,q=cv.width/META.aspects[e.aspect][0],sw=ed.src.width,sh=ed.src.height;
   if(e.framing==='split'){drawSplit(t);return;}
   let ee=e;
@@ -980,6 +1042,7 @@ function drawSplit(t){
   if(ready)ctx.drawImage(vid,x,y,w,h);
   const s=S();
   if(s.enabled){const pg=getPages(META.aspects[e.aspect][0],META.aspects[e.aspect][1]).find(p=>t>=p.start&&t<p.end);if(pg)drawPage(pg,t,s,META.aspects[e.aspect][0],META.aspects[e.aspect][1])}
+  drawHook(t);
   if(uiPrefs.safe)drawSafe(META.aspects[e.aspect][0],META.aspects[e.aspect][1]);
   if(drag&&drag.kind==='cap'){const [l,tt,r,b]=captionSafeRect(META.aspects[e.aspect][0],META.aspects[e.aspect][1]);ctx.save();ctx.setLineDash([12,8]);ctx.strokeStyle='rgba(255,90,54,.9)';ctx.lineWidth=3;ctx.strokeRect(l,tt,r-l,b-tt);ctx.restore()}
 }
@@ -1017,6 +1080,19 @@ function drawPage(pg,t,s,W,H){
   });
   ctx.restore();
 }
+function drawHook(t){
+  const b=ed.edit.brand||{},hk=b.hook||{};if(!hk.enabled||!hk.title)return;
+  const [W,H]=ed.edit.framing==='split'?[1080,1920]:META.aspects[ed.edit.aspect];
+  const d=Math.max(0.5,Math.min(60,hk.duration||3));if(t>d)return;
+  let alpha=1,sc=1;const anim=hk.anim||"fade";
+  if(anim==="fade"){alpha=Math.min(1,t/0.4);if(t>d-0.4)alpha=Math.min(1,(d-t)/0.4)}
+  if(anim==="pop"){sc=t<0.3?1.4-0.4*(t/0.3):1}
+  ctx.save();ctx.translate(W/2,H*0.11);ctx.scale(sc,sc);ctx.globalAlpha=Math.max(0,alpha);
+  ctx.fillStyle=b.primary||"#ff5a36";ctx.textAlign="center";ctx.textBaseline="alphabetic";
+  ctx.font=`700 ${Math.max(24,H/18)}px "${b.font||"Arial"}"`;
+  ctx.fillText(_escHtml(hk.title),0,0);ctx.restore();
+}
+function _escHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function drawSafe(W,H){
   ctx.save();ctx.lineWidth=2/ (cv.width/W);
   const A=META.aspects['9:16'];

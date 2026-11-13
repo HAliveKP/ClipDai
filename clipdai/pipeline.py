@@ -15,6 +15,7 @@ from .highlights import find_clips, write_metadata
 from .publishers import PublishError, get_publisher
 from .publishers.base import build_text
 from .render import default_edit, make_thumbnail, probe_size, render_clip, render_edit, words_in
+from . import brand as brand_module
 from .transcribe import load_cached, transcribe
 from .utils import log, slug
 
@@ -100,6 +101,9 @@ def process_source(s, db: DB, url: str, start: float | None = None, end: float |
             progress(f"rendering {i}/{len(clips)}")
             log(f"[render] clip {i}/{len(clips)} {c.start:.0f}s-{c.end:.0f}s '{c.title}' ({lay})")
             edit = default_edit(lay, crop_x, s.caption_font, s.caption_size)
+            bk = brand_module.load_brand(s.data_dir)
+            if bk.get("enabled"):
+                edit["brand"] = brand_module.merge_brand(bk, edit.get("brand"))
             render_clip(src.path, c, segs, out, edit=edit)
             make_thumbnail(out, out.with_suffix(".jpg"), min(1.0, c.duration / 2))
             cid = db.add_clip(sid, out, c, "approved" if s.auto_approve else "pending", edit)
@@ -179,7 +183,7 @@ def export_clip(s, db: DB, clip_id: int) -> Path:
     ver = (clip["version"] or 0) + 1
     base = re.sub(r"_v\d+$", "", old.stem)
     out = old.with_name(f"{base}_v{ver}.mp4")
-    render_edit(path, (w, h), clip["start"], clip["end"], words, edit, out)
+    render_edit(path, (w, h), clip["start"], clip["end"], words, edit, out, s.data_dir)
     make_thumbnail(out, out.with_suffix(".jpg"), min(1.0, (clip["end"] - clip["start"]) / 2))
     db.set_clip(clip_id, path=str(out), version=ver, render_status="", render_error="")
     if old != out:
