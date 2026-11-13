@@ -192,7 +192,7 @@ def _png_size(p: Path) -> tuple[int, int]:
 
 def _wm_filter(brand: dict, W: int, H: int, data_dir: Path | None, base_label: str,
                tdir: Path | None) -> tuple[str, str]:
-    """ffmpeg filter chain appending a logo watermark overlay after ``base_label``."""
+    """ffmpeg filter chain appending a logo watermark overlay after ``base_label`` (bare name, no brackets)."""
     logo = str(brand.get("logo") or "").strip()
     if not logo:
         return "", base_label
@@ -231,7 +231,7 @@ def _wm_filter(brand: dict, W: int, H: int, data_dir: Path | None, base_label: s
     chain = (f"movie='wm_logo.png'[wm];"
              f"[wm]scale={scale_w}:{scale_h}:flags=bicubic[wml];"
              f"[wml]colorchannelmixer=aa={opacity}[wmi];"
-             f"{base_label}[wmi]overlay={x}:{y}:format=auto[final]")
+             f"[{base_label}][wmi]overlay={x}:{y}:format=auto[final]")
     return chain, "final"
 
 
@@ -388,7 +388,7 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
                                                         brand.get("primary", "#ff5a36")), encoding="utf-8")
                 vf += f";[{last}]subtitles=hook.ass[hout]"
                 last = "hout"
-            wm_chain, last = _wm_filter(brand, W, H, data_dir, f"[{last}]", tdir)
+            wm_chain, last = _wm_filter(brand, W, H, data_dir, last, tdir)
             if wm_chain:
                 vf += ";" + wm_chain
             fade_out = max(dur - 0.25, 0)
