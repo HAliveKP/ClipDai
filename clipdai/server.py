@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 from . import fontmetrics, layout, pipeline, watch
+from . import cuts
 from .db import DB
 from .utils import log, parse_time
 
@@ -329,6 +330,21 @@ class Handler(BaseHTTPRequestHandler):
                 db.save_split_preset(name, streamer, boxes, ratio)
             self._json({"ok": True, "presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
                               for r in db.split_presets(streamer or None)]})
+        if p == "/api/preview-cuts":
+            raw_words = d.get("words") or []
+            words = []
+            for w in raw_words:
+                try:
+                    words.append([round(float(w[0]), 3), round(float(w[1]), 3), str(w[2])])
+                except (TypeError, ValueError):
+                    continue
+            clip_len = float(d.get("clip_len") or 0)
+            edit = layout.normalize_edit(d.get("edit") or {})
+            threshold = edit["silence_threshold"] if edit["cut_silence"] else 30.0
+            keep, cutseg = cuts.plan_cuts(words, threshold, edit["cut_fillers"],
+                                          edit["filler_words"], edit["cut_pad"], clip_len or None)
+            return {"ok": True, "keep": keep, "cuts": cutseg,
+                    "removed": round(sum(b - a for a, b in cutseg), 3)}
         if p.startswith("/api/clip/"):
             return self._clip_action(db, self._id(p), d)
         return None

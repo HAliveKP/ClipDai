@@ -225,6 +225,12 @@ DEFAULT_EDIT = {
     # fraction of the 1080x1920 canvas height given to the facecam band.
     "split_boxes": copy.deepcopy(DEFAULT_SPLIT_BOXES),
     "split_ratio": DEFAULT_SPLIT_RATIO,
+    # cut-based editing: silence / filler removal. "cuts" holds the computed
+    # keep segments [[a,b], ...] (clip-relative seconds) when the editor/export
+    # has decided them; the toggles drive the on-the-fly planner otherwise.
+    "cut_silence": False, "cut_fillers": False,
+    "silence_threshold": 0.4, "filler_words": [], "cut_pad": 0.05, "cut_fade": 0.04,
+    "cuts": None,
     "captions": DEFAULT_STYLE,
 }
 
@@ -280,6 +286,15 @@ def normalize_edit(d: dict | None) -> dict:
     out["track"] = track if (track is None or isinstance(track, list)) else None
     out["split_boxes"] = _split_boxes_from(d)
     out["split_ratio"] = _num(d.get("split_ratio"), 0.15, 0.85, out["split_ratio"])
+    out["cut_silence"] = bool(d.get("cut_silence", False))
+    out["cut_fillers"] = bool(d.get("cut_fillers", False))
+    out["silence_threshold"] = _num(d.get("silence_threshold"), 0.05, 30, out["silence_threshold"])
+    fw = d.get("filler_words")
+    out["filler_words"] = [str(w).strip() for w in fw][:50] if isinstance(fw, list) else list(out["filler_words"])
+    out["cut_pad"] = _num(d.get("cut_pad"), 0.0, 5, out["cut_pad"])
+    out["cut_fade"] = _num(d.get("cut_fade"), 0.0, 2, out["cut_fade"])
+    c = d.get("cuts")
+    out["cuts"] = c if (c is None or isinstance(c, list)) else None
     out["captions"] = normalize_style(d.get("captions"))
     return out
 

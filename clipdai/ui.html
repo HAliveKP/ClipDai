@@ -397,6 +397,17 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
           </div>
           <div class="note" id="t-len"></div>
           <div class="note">Trimming changes which part of the source is exported. The preview scrubber always shows the trimmed clip.</div>
+          <fieldset><legend>Cut silences &amp; filler words</legend>
+            <label class="chk"><input type="checkbox" id="cut-silence"> Remove silences above threshold</label>
+            <label class="chk"><input type="checkbox" id="cut-fillers"> Remove filler words</label>
+            <label class="f">Silence threshold (s)<span class="rng"><input type="range" id="cut-threshold" min="0.05" max="5" step="0.05"><output id="o-cut-threshold"></output></span></label>
+            <label class="f">Filler words (comma separated)<input id="cut-fillers-list" placeholder="um, uh, er, like, you know"></label>
+            <div class="g2"><button class="btn ghost sm" id="cut-preview" type="button">Preview cuts</button>
+              <span class="note" id="cut-info"></span></div>
+            <div id="cut-list" class="words"></div>
+            <div class="note">Cuts are applied at export on top of your trim. Deleted caption words are also cut.
+              Captions are re-timed to the new timeline automatically.</div>
+          </fieldset>
         </div>
       </div>
     </div>
@@ -742,6 +753,16 @@ function buildStaticControls(){
       await loadSplitPresets(streamer);toast(`Split preset “${esc(name)}” saved.`,'ok')}catch(e){toast(esc(e.message),'err')}};
   $('split-del').onclick=async()=>{const v=$('split-preset').value;if(!v)return;if(!confirm(`Delete split preset “${esc(v)}”?`))return;
     try{await api('/api/split-presets',{name:v,delete:true});await loadSplitPresets(ed.src.streamer||'');$('split-preset').value='';toast('Preset deleted.','ok')}catch(e){toast(esc(e.message),'err')}};
+  $('cut-silence').onchange=()=>{ed.edit.cut_silence=$('cut-silence').checked;setDirty(true)};
+  $('cut-fillers').onchange=()=>{ed.edit.cut_fillers=$('cut-fillers').checked;setDirty(true)};
+  $('cut-threshold').addEventListener('input',()=>{ed.edit.silence_threshold=+$('cut-threshold').value;$('o-cut-threshold').textContent=$('cut-threshold').value+'s';setDirty(true)});
+  $('cut-fillers-list').addEventListener('change',()=>{ed.edit.filler_words=$('cut-fillers-list').value.split(',').map(w=>w.trim()).filter(w=>w);setDirty(true);});
+  $('cut-preview').onclick=async()=>{
+    materializeWords();const ws=(ed.words||[]).map(w=>[w[0]-ed.start,w[1]-ed.start,w[2]]);
+    try{const r=await api('/api/preview-cuts',{edit:ed.edit,words:ws,clip_len:ed.end-ed.start});
+      $('cut-info').textContent=`${r.cuts.length} cut${r.cuts.length!==1?'s':''}, ${(r.removed||0).toFixed(2)}s removed.`;
+      $('cut-list').innerHTML=r.cuts.map(([a,b])=>`<div class="wr" style="font-size:12px;background:transparent"><span>${a.toFixed(2)}s &ndash; ${b.toFixed(2)}s</span><span style="color:var(--bad)">${((b-a)*1000).toFixed(0)} ms</span></div>`).join('')||'<div class="note">No cuts detected.</div>';
+    }catch(e){toast(esc(e.message),'err')};}
 }
 async function loadSplitPresets(streamer){try{const r=await api('/api/split-presets?streamer='+encodeURIComponent(streamer||''));
   META.split_presets=r.presets;fillSplitPresets(streamer)}catch(e){}}
@@ -781,6 +802,9 @@ function syncControls(){
   $('splitwrap').hidden=e.framing!=='split';
   if(e.framing==='split'){$('split-ratio').value=e.split_ratio;$('o-split-ratio').textContent=Math.round(e.split_ratio*100)+'%';
     splitSelectBox(e.split_boxes);}
+  $('cut-silence').checked=!!e.cut_silence;$('cut-fillers').checked=!!e.cut_fillers;
+  $('cut-threshold').value=e.silence_threshold;$('o-cut-threshold').textContent=e.silence_threshold+'s';
+  $('cut-fillers-list').value=(e.filler_words||[]).join(', ');
   const [W,H]=e.framing==='split'?[1080,1920]:META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
   // keep the canvas element at export ratio; internal resolution capped for speed
   const q=Math.min(1,900/Math.max(W,H));if(cv.width!==Math.round(W*q)||cv.height!==Math.round(H*q)){cv.width=Math.round(W*q);cv.height=Math.round(H*q)}

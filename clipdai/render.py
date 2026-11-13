@@ -11,7 +11,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from . import fontmetrics, layout, tracking
+from . import fontmetrics, layout, tracking, cuts
 from .highlights import Clip
 from .transcribe import Segment
 from .utils import run
@@ -68,10 +68,27 @@ def video_split(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
     return f"[0:v]{fc}[fc];[0:v]{gp}[gp];[fc][gp]vstack=inputs=2[base]"
 
 
-def video_filter(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
-    """filter_complex producing [base] at WxH from input 0, framed per edit."""
+def video_split(sw: int, sh: int, W: int, H: int, edit: dict, input_label: str = "[0:v]") -> str:
+    """filter_complex producing [base] at WxH from ``input_label`` for split layout."""
+    fc_src, fc_dst, gp_src, gp_dst = layout.split_frame_rects(sw, sh, W, H, edit)
+    (fcx, fcy, fcw, fch) = fc_src
+    (_, _, ow, oh) = fc_dst
+    (gx, gy, gw, gh) = gp_src
+    goh = gp_dst[3]
+    fcw = max(fcw, 2); fch = max(fch, 2); gw = max(gw, 2); gh = max(gh, 2)
+    ow = max(_even(ow), 2); oh = max(_even(oh), 2)
+    goh = max(_even(goh), 2)
+    fc = (f"crop={int(round(fcw))}:{int(round(fch))}:{int(round(fcx))}:{int(round(fcy))},"
+          f"scale={ow}:{oh}:flags=bicubic,setsar=1")
+    gp = (f"crop={int(round(gw))}:{int(round(gh))}:{int(round(gx))}:{int(round(gy))},"
+          f"scale={ow}:{goh}:flags=bicubic,setsar=1")
+    return f"{input_label}{fc}[fc];{input_label}{gp}[gp];[fc][gp]vstack=inputs=2[base]"
+
+
+def video_filter(sw: int, sh: int, W: int, H: int, edit: dict, input_label: str = "[0:v]") -> str:
+    """filter_complex producing [base] at WxH from ``input_label``, framed per edit."""
     if edit.get("framing") == "split":
-        return video_split(sw, sh, W, H, edit)
+        return video_split(sw, sh, W, H, edit, input_label)
     x, y, w, h = layout.frame_rect(sw, sh, W, H, edit)
     k = w / sw
     vx0, vy0, vx1, vy1 = max(0.0, x), max(0.0, y), min(float(W), x + w), min(float(H), y + h)
@@ -95,20 +112,47 @@ def video_filter(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
         cy_vals = [min(max(float(kf[2]) * free_y, 0.0), float(free_y)) for kf in track]
         fg = (f"crop={cw}:{ch}:x={tracking.tracking_expr(times, cx_vals)}:"
               f"y={tracking.tracking_expr(times, cy_vals)},scale={ow}:{oh}:flags=bicubic,setsar=1")
-        return f"[0:v]{fg}[base]"
+        return f"{input_label}{fg}[base]"
     fg = f"crop={cw}:{ch}:{cx0}:{cy0},scale={ow}:{oh}:flags=bicubic,setsar=1"
     if covers:
-        return f"[0:v]{fg}[base]"
+        return f"{input_label}{fg}[base]"
     bw, bh = _even(W / 4), _even(H / 4)
-    return (f"[0:v]split=2[a][b];"
+    return (f"{input_label}split=2[a][b];"
             f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=8:3,"
             f"eq=brightness=-0.08,scale={W}:{H},setsar=1[bg];"
             f"[b]{fg}[fg];[bg][fg]overlay={ox}:{oy}[base]")
 
 
+def _has_audio(path: Path) -> bool:
+    try:
+        out = run(["ffmpeg", "-hide_banner", "-i", str(path), "-f", "null", "-"]).stderr
+    except RuntimeError:
+        return False
+    return "Audio:" in out
+
+
+def _ass_part(tdir: Path, rel: list, style: dict, W: int, H: int, dur: float, base_vf: str, last: str):
+    ass = layout.build_ass(rel, style, W, H, dur)
+    if not ass:
+        return base_vf, last
+    (tdir / "caps.ass").write_text(ass, encoding="utf-8")
+    fdir = tdir / "fonts"; fdir.mkdir()
+    for name in set(fontmetrics.FONTS.get(style["font"], ())):
+        f = fontmetrics._find(name)
+        if f:
+            shutil.copy(f, fdir / f.name)
+    return base_vf + ";[base]subtitles=caps.ass:fontsdir=fonts[vout]", "vout"
+
+
 def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, words: list, edit: dict,
                 out: Path) -> Path:
-    """words: absolute [s, e, text] (source time). edit: layout.normalize_edit() output."""
+    """words: absolute [s, e, text] (source time). edit: layout.normalize_edit() output.
+
+    When edit["cuts"] (keep segments, clip-relative seconds) is present the source
+    is trimmed to those segments, remapped into a continuous timeline, and the
+    segments are concatenated with short audio fades at the joins. Caption words
+    are remapped to the new timeline before layout, so captions stay aligned.
+    """
     edit = layout.normalize_edit(edit)
     if edit.get("framing") == "split":
         W, H = layout.split_canvas_size()  # split always exports 1080x1920 vertical
@@ -122,35 +166,88 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
                                          src_size[0], src_size[1], W, H)
         if track:
             edit = {**edit, "track": track}
+    keep = [[float(a), float(b)] for a, b in edit.get("cuts") or []]
+    if keep:
+        words = cuts.remap_words(words, keep)
     rel = [(s - start, e - start, t) for s, e, t in words if e > start and s < end]
     style = edit["captions"]
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         tdir = Path(td)
-        vf = video_filter(src_size[0], src_size[1], W, H, edit)
-        last = "base"
-        ass = layout.build_ass(rel, style, W, H, dur)
-        if ass:
-            (tdir / "caps.ass").write_text(ass, encoding="utf-8")
-            fdir = tdir / "fonts"
-            fdir.mkdir()
-            for name in set(fontmetrics.FONTS.get(style["font"], ())):
-                f = fontmetrics._find(name)
-                if f:
-                    shutil.copy(f, fdir / f.name)
-            vf += ";[base]subtitles=caps.ass:fontsdir=fonts[vout]"
-            last = "vout"
-        fade_out = max(dur - 0.25, 0)
-        af = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
-        cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-ss", f"{start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{dur:.3f}",
-            "-filter_complex", vf, "-map", f"[{last}]", "-map", "0:a:0?",
-            "-af", af,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
-            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
-            str(out.resolve()),
-        ]
+        sw, sh = src_size
+        if keep:
+            if edit.get("tracking"):
+                log("[render] cuts + tracking: falling back to static crop (tracking incompatible with cut timeline)")
+                edit = {**edit, "tracking": False, "track": None}
+            fade = float(edit.get("cut_fade", cuts.DEFAULT_FADE))
+            ha = _has_audio(src)
+            segs: list[Path] = []
+            for i, (a, b) in enumerate(keep):
+                A, B = start + a, start + b
+                seg_dur = b - a
+                seg_v = tdir / f"seg{i}.mp4"
+                vf = video_filter(sw, sh, W, H, edit)  # [0:v] -> [base], no captions yet
+                fade_a = min(fade, seg_dur / 2)
+                af = (f"afade=t=in:st=0:d={fade_a:.2f},afade=t=out:st={max(seg_dur - fade_a, 0.0):.2f}:d={fade_a:.2f}"
+                      if seg_dur > 0.05 and ha else "")
+                cmd = [
+                    "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-ss", f"{A:.3f}", "-i", str(Path(src).resolve()), "-t", f"{seg_dur:.3f}",
+                    "-filter_complex", vf, "-map", "[base]", *(("-map", "0:a:0?") if ha else ()),
+                ]
+                if ha:
+                    cmd += ["-af", af]
+                cmd += [
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+                    "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
+                    str(seg_v),
+                ]
+                run(cmd)
+                segs.append(seg_v)
+            # concat demuxer: all segments share codec params, stream copy, continuous timeline from 0
+            pl = tdir / "segs.txt"
+            pl.write_text("".join(f"file '{p.resolve()}'\n" for p in segs), encoding="utf-8")
+            all_ = tdir / "all.mp4"
+            run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
+                 "-i", str(pl), "-c", "copy", str(all_)])
+            # second pass: burn captions + loudnorm on the assembled timeline
+            vf2 = ""
+            ass = layout.build_ass(rel, style, W, H, dur)
+            if ass:
+                    (tdir / "caps.ass").write_text(ass, encoding="utf-8")
+                    fdir = tdir / "fonts"; fdir.mkdir()
+                    for name in set(fontmetrics.FONTS.get(style["font"], ())):
+                        f = fontmetrics._find(name)
+                        if f:
+                            shutil.copy(f, fdir / f.name)
+                    vf2 = f"subtitles=caps.ass:fontsdir=fonts"
+                    last2 = "vout"  # not used; single output
+            fade_out = max(dur - 0.25, 0)
+            af2 = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
+            cmd2 = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(all_)]
+            if vf2:
+                cmd2 += ["-vf", vf2]
+            cmd2 += [
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+                "-af", af2, "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
+                str(out.resolve()),
+            ]
+            run(cmd2, cwd=tdir)
+            return out
+        else:
+            vf = video_filter(sw, sh, W, H, edit)
+            vf, last = _ass_part(tdir, rel, style, W, H, dur, vf, "base")
+            fade_out = max(dur - 0.25, 0)
+            af = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
+            audio_map = ("-map", "0:a:0?") if _has_audio(src) else ()
+            cmd = [
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-ss", f"{start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{dur:.3f}",
+                "-filter_complex", vf, "-map", f"[{last}]", *audio_map, "-af", af,
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+                "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
+                str(out.resolve()),
+            ]
         run(cmd, cwd=tdir)  # cwd=tmp so the subtitles filter finds caps.ass/fonts without path escaping
     return out
 
