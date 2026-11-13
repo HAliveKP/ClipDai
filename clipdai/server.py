@@ -9,7 +9,7 @@ import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import fontmetrics, layout, pipeline, watch
 from .db import DB
@@ -139,6 +139,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/api/meta":
                 db = DB(self.s.db_path)
                 self._json(self._meta(db))
+            elif p == "/api/split-presets":
+                db = DB(self.s.db_path)
+                qs = parse_qs(urlparse(self.path).query)
+                streamer = qs.get("streamer", [None])[0]
+                self._json({"presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
+                              for r in db.split_presets(streamer)]})
             elif p.startswith("/api/editor/"):
                 db = DB(self.s.db_path)
                 self._json(self._editor(db, self._id(p)))
@@ -178,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
             "builtin_presets": {k: layout.normalize_style({**layout.DEFAULT_STYLE, **v})
                                 for k, v in layout.BUILTIN_PRESETS.items()},
             "presets": {r["name"]: json.loads(r["style"]) for r in db.presets()},
+            "split_presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
+                              for r in db.split_presets()],
             "consts": {"safety": layout.SAFETY, "unknown_ascii": layout.UNKNOWN_ASCII,
                        "unknown_other": layout.UNKNOWN_OTHER},
         }
@@ -197,7 +205,8 @@ class Handler(BaseHTTPRequestHandler):
             "edit": pipeline.clip_edit(self.s, clip),
             "words": json.loads(clip["words"]) if clip["words"] else None,
             "transcript": pipeline.transcript_words(self.s, path, a, b),
-            "source": {"id": src["id"], "title": src["title"], "width": w, "height": h, "duration": dur,
+            "source": {"id": src["id"], "title": src["title"], "uploader": src["uploader"] or "",
+                       "width": w, "height": h, "duration": dur,
                        "media": f"/source/{src['id']}"},
         }
 
@@ -299,6 +308,27 @@ class Handler(BaseHTTPRequestHandler):
             if d.get("export"):
                 Worker.render_now.set()
             return {"ok": True, "count": len(ids)}
+        if p == "/api/split-presets":
+            name = str(d.get("name") or "").strip()[:40]
+            streamer = str(d.get("streamer") or "").strip()[:80]
+            if d.get("delete"):
+                if not name:
+                    raise ApiError("Give the preset a name.")
+                db.del_split_preset(name)
+            else:
+                if not name:
+                    raise ApiError("Give the preset a name.")
+                if not streamer:
+                    raise ApiError("A streamer name is required.")
+                boxes = d.get("boxes") or {}
+                ratio = d.get("ratio")
+                try:
+                    ratio = float(ratio)
+                except (TypeError, ValueError):
+                    ratio = layout.DEFAULT_SPLIT_RATIO
+                db.save_split_preset(name, streamer, boxes, ratio)
+            self._json({"ok": True, "presets": [{**dict(r), "boxes": json.loads(r["boxes"] or "{}")}
+                              for r in db.split_presets(streamer or None)]})
         if p.startswith("/api/clip/"):
             return self._clip_action(db, self._id(p), d)
         return None

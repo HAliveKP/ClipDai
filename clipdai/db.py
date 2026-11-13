@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS watches(
 CREATE TABLE IF NOT EXISTS presets(
   id INTEGER PRIMARY KEY, name TEXT UNIQUE, style TEXT, created REAL
 );
+CREATE TABLE IF NOT EXISTS split_presets(
+  id INTEGER PRIMARY KEY, name TEXT UNIQUE, streamer TEXT, boxes TEXT, ratio REAL, created REAL
+);
 """
 
 # columns added after the first release; created on open so existing databases keep working
@@ -113,6 +116,25 @@ class DB:
 
     def del_preset(self, name):
         self.c.execute("DELETE FROM presets WHERE name=?", (name,))
+        self.c.commit()
+
+    # ---- split layout presets (per streamer) ----
+    def split_presets(self, streamer: str | None = None):
+        if streamer:
+            return self.c.execute(
+                "SELECT * FROM split_presets WHERE streamer=? ORDER BY name", (streamer,)).fetchall()
+        return self.c.execute("SELECT * FROM split_presets ORDER BY streamer, name").fetchall()
+
+    def save_split_preset(self, name: str, streamer: str, boxes: dict, ratio: float) -> None:
+        self.c.execute(
+            "INSERT INTO split_presets(name,streamer,boxes,ratio,created) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(name) DO UPDATE SET streamer=excluded.streamer, boxes=excluded.boxes, "
+            "ratio=excluded.ratio, created=excluded.created",
+            (name, streamer, json.dumps(boxes), float(ratio), time.time()))
+        self.c.commit()
+
+    def del_split_preset(self, name: str):
+        self.c.execute("DELETE FROM split_presets WHERE name=?", (name,))
         self.c.commit()
 
     # ---- jobs

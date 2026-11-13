@@ -14,7 +14,6 @@ from datetime import timedelta
 from clipdai import config, highlights, pipeline, render
 from clipdai.db import DB
 from clipdai.transcribe import Segment, Word, extract_audio
-
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=70",
                 "-f", "lavfi", "-i", "sine=frequency=300:duration=70", "-shortest", "-c:v", "libx264",
                 "-preset", "ultrafast", "-c:a", "aac", "src.mp4"], check=True)
@@ -39,8 +38,8 @@ for i, c in enumerate(clips):
         render.render_clip(Path("src.mp4"), c, segs, s.clips_dir / "c0_crop.mp4", "crop")
     cid = db.add_clip(sid, out, c, "pending")
     pipeline.enqueue(s, db, cid)
-w = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
-                    "-of", "csv=p=0", str(s.clips_dir / "c0.mp4")], capture_output=True, text=True).stdout.strip()
+w = render.probe_size(s.clips_dir / "c0.mp4")
+w = f"{w[0]},{w[1]}"
 assert w == "1080,1920", w
 dues = sorted({j["due"] for j in db.all_jobs()})
 assert len(dues) == len(clips), "each clip should get its own slot"

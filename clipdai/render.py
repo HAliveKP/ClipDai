@@ -6,6 +6,7 @@ uses exactly the font whose metrics we measured instead of whatever the system f
 """
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -16,13 +17,25 @@ from .transcribe import Segment
 from .utils import run
 
 
+def _ffmpeg_size(path: Path) -> tuple[int, int]:
+    """Fallback probe: parse the resolution ffmpeg prints for the first video stream."""
+    out = run(["ffmpeg", "-hide_banner", "-i", str(path), "-f", "null", "-"]).stderr
+    m = re.search(r"Video:.*?(\d{3,})x(\d{3,})", out)
+    if not m:
+        raise RuntimeError(f"could not probe video size of {path}")
+    return int(m.group(1)), int(m.group(2))
+
+
 def probe_size(path: Path) -> tuple[int, int]:
-    out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:stream_tags=rotate",
-               "-of", "csv=p=0", str(path)]).stdout.strip().splitlines()[0].split(",")
-    w, h = int(out[0]), int(out[1])
-    if len(out) > 2 and out[2].strip() in ("90", "-90", "270", "-270"):
-        w, h = h, w
-    return w, h
+    try:
+        out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:stream_tags=rotate",
+                   "-of", "csv=p=0", str(path)]).stdout.strip().splitlines()[0].split(",")
+        w, h = int(out[0]), int(out[1])
+        if len(out) > 2 and out[2].strip() in ("90", "-90", "270", "-270"):
+            w, h = h, w
+        return w, h
+    except Exception:  # ffprobe missing or unreadable: fall back to parsing ffmpeg -i output
+        return _ffmpeg_size(path)
 
 
 def words_in(segments: list[Segment], start: float, end: float) -> list[list]:
@@ -34,8 +47,31 @@ def _even(v: float) -> int:
     return max(2, int(round(v / 2)) * 2)
 
 
+def video_split(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
+    """filter_complex producing [base] at WxH from input 0 for split (facecam + gameplay).
+
+    Two source-space boxes are cropped and scaled to fill stacked bands; bands sum to H.
+    Captions are overlaid by the caller on top of [base], so preview and export match.
+    """
+    fc_src, fc_dst, gp_src, gp_dst = layout.split_frame_rects(sw, sh, W, H, edit)
+    (fcx, fcy, fcw, fch) = fc_src
+    (_, _, ow, oh) = fc_dst
+    (gx, gy, gw, gh) = gp_src
+    goh = gp_dst[3]
+    fcw = max(fcw, 2); fch = max(fch, 2); gw = max(gw, 2); gh = max(gh, 2)
+    ow = max(_even(ow), 2); oh = max(_even(oh), 2)
+    goh = max(_even(goh), 2)
+    fc = (f"crop={int(round(fcw))}:{int(round(fch))}:{int(round(fcx))}:{int(round(fcy))},"
+          f"scale={ow}:{oh}:flags=bicubic,setsar=1")
+    gp = (f"crop={int(round(gw))}:{int(round(gh))}:{int(round(gx))}:{int(round(gy))},"
+          f"scale={ow}:{goh}:flags=bicubic,setsar=1")
+    return f"[0:v]{fc}[fc];[0:v]{gp}[gp];[fc][gp]vstack=inputs=2[base]"
+
+
 def video_filter(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
     """filter_complex producing [base] at WxH from input 0, framed per edit."""
+    if edit.get("framing") == "split":
+        return video_split(sw, sh, W, H, edit)
     x, y, w, h = layout.frame_rect(sw, sh, W, H, edit)
     k = w / sw
     vx0, vy0, vx1, vy1 = max(0.0, x), max(0.0, y), min(float(W), x + w), min(float(H), y + h)
@@ -74,7 +110,10 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
                 out: Path) -> Path:
     """words: absolute [s, e, text] (source time). edit: layout.normalize_edit() output."""
     edit = layout.normalize_edit(edit)
-    W, H = layout.canvas_size(edit["aspect"])
+    if edit.get("framing") == "split":
+        W, H = layout.split_canvas_size()  # split always exports 1080x1920 vertical
+    else:
+        W, H = layout.canvas_size(edit["aspect"])
     dur = max(end - start, 0.5)
     # compute face-tracking keyframes server-side when tracking is requested but none
     # were supplied (e.g. first export after toggling tracking on in the editor)
@@ -118,7 +157,7 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
 
 def default_edit(layout_name: str = "blur", crop_x: float = 0.5, font: str = "Arial", size: int = 78) -> dict:
     """Edit state equivalent to the LAYOUT / CROP_X / CAPTION_* settings."""
-    framing = "fill" if layout_name in ("crop", "face") else "fit"
+    framing = "fill" if layout_name in ("crop", "face") else ("split" if layout_name == "split" else "fit")
     return layout.normalize_edit({"framing": framing, "pan_x": crop_x,
                                   "captions": {**layout.DEFAULT_STYLE, "font": font, "size": size}})
 

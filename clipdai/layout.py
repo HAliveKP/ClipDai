@@ -31,9 +31,23 @@ SAFE_ZONES: dict[str, dict[str, int]] = {
 }
 GENERIC_MARGIN = 0.06  # other ratios: keep captions 6% away from every edge
 
+# Split layout: two source-space crop boxes (facecam + gameplay) stacked vertically
+# on a 1080x1920 canvas. Boxes are relative to the source (0..1). split_ratio is the
+# canvas height fraction given to the facecam band (default 0.35 -> 35/65 split).
+DEFAULT_SPLIT_BOXES = {
+    "facecam": {"x": 0.10, "y": 0.10, "w": 0.80, "h": 0.30},
+    "gameplay": {"x": 0.10, "y": 0.60, "w": 0.80, "h": 0.30},
+}
+DEFAULT_SPLIT_RATIO = 0.35
+
 
 def canvas_size(aspect: str) -> tuple[int, int]:
     return ASPECTS.get(aspect, ASPECTS["9:16"])
+
+
+def split_canvas_size() -> tuple[int, int]:
+    """Split mode always exports 1080x1920 vertical."""
+    return ASPECTS["9:16"]
 
 
 def caption_safe_rect(W: int, H: int) -> tuple[float, float, float, float]:
@@ -64,6 +78,59 @@ def frame_rect(sw: int, sh: int, W: int, H: int, e: dict) -> tuple[float, float,
     k = fit
     w, h = sw * k, sh * k
     return (W - w) / 2, (H - h) / 2, w, h
+
+
+# ------------------------------------------------------------ split layout -------------
+def _clamp_box(b: dict) -> dict:
+    """Clamp a source-space box to [0, 1] with positive size; returns a sanitized copy."""
+    out = {"x": 0.0, "y": 0.0, "w": 0.8, "h": 0.3}
+    for k in ("x", "y", "w", "h"):
+        try:
+            v = float(b.get(k, out[k]))
+        except (TypeError, ValueError):
+            v = out[k]
+        if math.isnan(v):
+            v = out[k]
+        out[k] = min(1.0, max(0.0, v))
+    out["w"] = max(0.05, min(1.0 - out["x"], out["w"]))
+    out["h"] = max(0.05, min(1.0 - out["y"], out["h"]))
+    return out
+
+
+def split_boxes(e: dict) -> tuple[dict, dict, float]:
+    """(facecam_box, gameplay_box, ratio) for split framing, all validated/clamped."""
+    raw = e.get("split_boxes") or {}
+    fc = _clamp_box(raw.get("facecam") if isinstance(raw.get("facecam"), dict) else {})
+    gp = _clamp_box(raw.get("gameplay") if isinstance(raw.get("gameplay"), dict) else {})
+    ratio = _num(e.get("split_ratio"), 0.15, 0.85, DEFAULT_SPLIT_RATIO)
+    return fc, gp, ratio
+
+
+def split_frame_rects(sw: int, sh: int, W: int, H: int, e: dict) -> tuple[tuple[float, float, float, float], ...]:
+    """Canvas rects (x, y, w, h) for the facecam and gameplay bands on the WxH canvas.
+
+    Returns (fc_src, fc_dst, gp_src, gp_dst): source-space crop rects and the canvas
+    rects they fill. Bands stack to exactly WxH (facecam on top, gameplay below).
+    """
+    fc, gp, ratio = split_boxes(e)
+    fh = max(1, round(H * ratio))
+    gh = H - fh
+    fc_src = (fc["x"] * sw, fc["y"] * sh, fc["w"] * sw, fc["h"] * sh)
+    gp_src = (gp["x"] * sw, gp["y"] * sh, gp["w"] * sw, gp["h"] * sh)
+    return fc_src, (0, 0, W, fh), gp_src, (0, fh, W, gh)
+
+
+def _split_boxes_from(d: dict | None) -> dict:
+    d = d or {}
+    raw = d.get("split_boxes")
+    out = {"facecam": _clamp_box(dict(DEFAULT_SPLIT_BOXES["facecam"])),
+           "gameplay": _clamp_box(dict(DEFAULT_SPLIT_BOXES["gameplay"]))}
+    if isinstance(raw, dict):
+        for name in ("facecam", "gameplay"):
+            b = raw.get(name)
+            if isinstance(b, dict):
+                out[name] = _clamp_box(b)
+    return out
 
 
 def _lerp_at(t: float, times: Sequence[float], values: Sequence[float]) -> float:
@@ -147,12 +214,17 @@ BUILTIN_PRESETS = {
 
 DEFAULT_EDIT = {
     "aspect": "9:16",
-    "framing": "fit",   # fit = letterbox over blurred copy | fill = crop to cover | manual = drag + zoom
+    "framing": "fit",   # fit = letterbox over blurred copy | fill = crop to cover | manual = drag + zoom |
+                        # split = two source boxes (facecam/gameplay) stacked into a vertical frame
     "pan_x": 0.5, "pan_y": 0.5,
     "zoom": 1.0, "off_x": 0.0, "off_y": 0.0,
     # face tracking: when True the export window pans to follow the detected speaker.
     # "track" holds [(t, pan_x, pan_y), ...] keyframes computed server-side.
     "tracking": False, "track": None,
+    # split layout: source-space boxes (0..1) for facecam and gameplay, plus the
+    # fraction of the 1080x1920 canvas height given to the facecam band.
+    "split_boxes": copy.deepcopy(DEFAULT_SPLIT_BOXES),
+    "split_ratio": DEFAULT_SPLIT_RATIO,
     "captions": DEFAULT_STYLE,
 }
 
@@ -197,7 +269,7 @@ def normalize_edit(d: dict | None) -> dict:
     d = d or {}
     out = copy.deepcopy(DEFAULT_EDIT)
     out["aspect"] = d.get("aspect") if d.get("aspect") in ASPECTS else out["aspect"]
-    out["framing"] = d.get("framing") if d.get("framing") in ("fit", "fill", "manual") else out["framing"]
+    out["framing"] = d.get("framing") if d.get("framing") in ("fit", "fill", "manual", "split") else out["framing"]
     out["pan_x"] = _num(d.get("pan_x"), 0, 1, 0.5)
     out["pan_y"] = _num(d.get("pan_y"), 0, 1, 0.5)
     out["zoom"] = _num(d.get("zoom"), 0.25, 6, 1.0)
@@ -206,6 +278,8 @@ def normalize_edit(d: dict | None) -> dict:
     out["tracking"] = bool(d.get("tracking", False))
     track = d.get("track")
     out["track"] = track if (track is None or isinstance(track, list)) else None
+    out["split_boxes"] = _split_boxes_from(d)
+    out["split_ratio"] = _num(d.get("split_ratio"), 0.15, 0.85, out["split_ratio"])
     out["captions"] = normalize_style(d.get("captions"))
     return out
 

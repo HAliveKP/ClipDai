@@ -198,6 +198,11 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
 .presetrow{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
 .presetrow select{flex:1;min-width:140px}
 .note{font-size:12px;color:var(--mute)}
+.split{font-size:12px;color:var(--mute)}
+.split .b{display:flex;gap:8px;align-items:center;margin:6px 0}
+.split input{width:110px}
+.split select{width:170px}
+.split .lbl{font-size:12px;color:var(--mute);font-weight:650}
 </style>
 </head>
 <body>
@@ -285,9 +290,27 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
             <button type="button" data-v="fit" title="Whole video, blurred background fills the rest">Fit</button>
             <button type="button" data-v="fill" title="Crop to fill the frame. Drag to choose what stays in view">Fill</button>
             <button type="button" data-v="manual" title="Drag to move, scroll or use the slider to zoom">Manual</button>
+            <button type="button" data-v="split" title="Facecam + gameplay: two crop boxes stacked into a vertical frame">Split</button>
           </div>
           <label class="tools" id="zoomwrap" hidden><span class="lbl">Zoom</span><input type="range" id="zoom" min="0.25" max="4" step="0.01" style="width:110px"><output class="tc" id="zoomv"></output></label>
           <button class="btn ghost sm" id="recenter" type="button" hidden>Recenter</button>
+          <div id="splitwrap" class="split" hidden>
+            <div class="b"><span class="lbl">Facecam band height</span><input type="range" id="split-ratio" min="0.15" max="0.85" step="0.05"><output id="o-split-ratio"></output></div>
+            <div class="b"><span class="lbl">Box</span>
+              <select id="split-box" style="width:auto;padding:5px 8px;font-size:13px"><option value="facecam">Facecam</option><option value="gameplay">Gameplay</option></select>
+              <span class="lbl">x<input type="number" id="split-x" min="0" max="1" step="0.001"></span>
+              <span class="lbl">y<input type="number" id="split-y" min="0" max="1" step="0.001"></span>
+              <span class="lbl">w<input type="number" id="split-w" min="0" max="1" step="0.001"></span>
+              <span class="lbl">h<input type="number" id="split-h" min="0" max="1" step="0.001"></span>
+            </div>
+            <div class="b"><span class="lbl">Preset for streamer</span>
+              <select id="split-preset" style="width:auto;padding:5px 8px;font-size:13px"></select>
+              <button class="btn ghost sm" id="split-load" type="button">Load</button>
+              <button class="btn ghost sm" id="split-save" type="button">Save as preset</button>
+              <button class="btn ghost sm" id="split-del" type="button">Delete</button>
+              <span class="lbl" id="split-preset-of"></span>
+            </div>
+          </div>
           <label class="chk"><input type="checkbox" id="trackface"> Track speaker (face)</label>
           <span style="flex:1"></span>
           <label class="chk"><input type="checkbox" id="safe"> Safe zones</label>
@@ -661,6 +684,7 @@ async function openEditor(id){
   buildStaticControls();syncControls();renderWords();syncTrim();setDirty(false);
   $('cvload').style.display='flex';
   vid.src=ed.src.media;vid.currentTime=ed.start;
+  if(ed.edit.framing==='split')loadSplitPresets(ed.src.streamer||'');
   $('ed').showModal();render();
   if(location.hash!=='#edit='+id&&!location.hash.startsWith('#edit='+id+'&'))history.replaceState(null,'','#edit='+id);
   cancelAnimationFrame(raf);raf=requestAnimationFrame(tick);
@@ -702,7 +726,36 @@ function buildStaticControls(){
   $('trackface').onchange=()=>{ed.edit.tracking=$('trackface').checked;syncControls();setDirty(true)};
   $('safe').onchange=()=>{uiPrefs.safe=$('safe').checked;savePrefs()};
   $('safep').onchange=()=>{uiPrefs.plat=$('safep').value;savePrefs()};
+  $('split-ratio').addEventListener('input',()=>{ed.edit.split_ratio=+$('split-ratio').value;syncControls();setDirty(true)});
+  $('split-box').onchange=()=>{splitSyncInputs();};
+  ['split-x','split-y','split-w','split-h'].forEach(id=>{
+    $(id).addEventListener('change',()=>{splitSetFromInputs();setDirty(true);});
+    $(id).addEventListener('blur',()=>{splitSyncInputs();});
+  });
+  $('split-load').onclick=async()=>{const v=$('split-preset').value;if(!v)return;const p=META.split_presets.find(x=>x.name===v);if(!p)return;
+    ed.edit.split_boxes=JSON.parse(JSON.stringify(p.boxes));ed.edit.split_ratio=p.ratio;splitSelectBox(ed.edit.split_boxes);splitSyncInputs();syncControls();setDirty(true);
+    toast(`Split preset “${esc(v)}” loaded.`,'ok')};
+  $('split-save').onclick=async()=>{const streamer=ed.src.streamer||'';
+    if(!streamer){toast('This clip has no streamer saved; presets need a streamer.','err');return}
+    const name=prompt('Preset name:',`${streamer} split`);if(!name)return;
+    try{await api('/api/split-presets',{name,streamer,boxes:ed.edit.split_boxes,ratio:ed.edit.split_ratio});
+      await loadSplitPresets(streamer);toast(`Split preset “${esc(name)}” saved.`,'ok')}catch(e){toast(esc(e.message),'err')}};
+  $('split-del').onclick=async()=>{const v=$('split-preset').value;if(!v)return;if(!confirm(`Delete split preset “${esc(v)}”?`))return;
+    try{await api('/api/split-presets',{name:v,delete:true});await loadSplitPresets(ed.src.streamer||'');$('split-preset').value='';toast('Preset deleted.','ok')}catch(e){toast(esc(e.message),'err')}};
 }
+async function loadSplitPresets(streamer){try{const r=await api('/api/split-presets?streamer='+encodeURIComponent(streamer||''));
+  META.split_presets=r.presets;fillSplitPresets(streamer)}catch(e){}}
+function fillSplitPresets(streamer){
+  const sel=$('split-preset'),cur=sel.value;
+  const list=(META.split_presets||[]).filter(x=>x.streamer===streamer);
+  sel.innerHTML=list.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('');
+  sel.value=cur;if(!list.some(x=>x.name===cur))sel.value='';
+  $('split-load').disabled=!sel.value;$('split-del').disabled=!sel.value;
+  const of=$('split-preset-of');of.textContent=streamer?`${list.length} saved for “${esc(streamer)}”`:'';
+}
+function splitSelectBox(boxes){const b=boxes[$('split-box').value];for(const k of ['x','y','w','h'])$('split-'+k).value=b[k];$('o-split-ratio')&&($('split-ratio').value=ed.edit.split_ratio);}
+function splitSyncInputs(){const b=ed.edit.split_boxes[$('split-box').value];for(const k of ['x','y','w','h']){const el=$('split-'+k);let v=parseFloat(el.value);if(Number.isNaN(v))v=b[k];el.value=v;b[k]=v}splitSelectBox(ed.edit.split_boxes);}
+function splitSetFromInputs(){splitSyncInputs();pagesCache=null;}
 function setFraming(v){
   const e=ed.edit,{width:sw,height:sh}=ed.src,[W,H]=META.aspects[e.aspect];
   if(v==='manual'&&e.framing!=='manual'){ // start manual from whatever is on screen now
@@ -725,13 +778,16 @@ function syncControls(){
   document.querySelectorAll('#p-style fieldset:not(:first-of-type) :is(input,select,button)').forEach(el=>el.disabled=!s.enabled);
   $('safe').checked=uiPrefs.safe;$('safep').value=uiPrefs.plat;$('safep').disabled=!uiPrefs.safe;
   $('trackface').checked=!!e.tracking;
-  const [W,H]=META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
+  $('splitwrap').hidden=e.framing!=='split';
+  if(e.framing==='split'){$('split-ratio').value=e.split_ratio;$('o-split-ratio').textContent=Math.round(e.split_ratio*100)+'%';
+    splitSelectBox(e.split_boxes);}
+  const [W,H]=e.framing==='split'?[1080,1920]:META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
   // keep the canvas element at export ratio; internal resolution capped for speed
   const q=Math.min(1,900/Math.max(W,H));if(cv.width!==Math.round(W*q)||cv.height!==Math.round(H*q)){cv.width=Math.round(W*q);cv.height=Math.round(H*q)}
   fitCanvas();fillPresets();pagesCache=null;
 }
 // size the canvas element to the largest box of the export ratio that fits the stage
-function fitCanvas(){if(!META||!ed.edit)return;const [W,H]=META.aspects[ed.edit.aspect],b=$('cvwrap').getBoundingClientRect();
+function fitCanvas(){if(!META||!ed.edit)return;const [W,H]=ed.edit.framing==='split'?[1080,1920]:META.aspects[ed.edit.aspect],b=$('cvwrap').getBoundingClientRect();
   const k=Math.min((b.width-16)/W,(b.height-16)/H);if(k>0){cv.style.width=Math.floor(W*k)+'px';cv.style.height=Math.floor(H*k)+'px'}}
 new ResizeObserver(fitCanvas).observe($('cvwrap'));
 
@@ -840,24 +896,69 @@ function tick(){raf=requestAnimationFrame(tick);if(!$('ed').open)return;
 }
 function relWords(){return effWords().filter(w=>w[1]>ed.start&&w[0]<ed.end).map(w=>[w[0]-ed.start,w[1]-ed.start,w[2]])}
 function getPages(W,H){if(!pagesCache)pagesCache=layoutPages(relWords(),S(),W,H,ed.end-ed.start);return pagesCache}
-function draw(t){
-  const e=ed.edit,[W,H]=META.aspects[e.aspect],q=cv.width/W,sw=ed.src.width,sh=ed.src.height;
+function splitFit(){const e=ed.edit;if(!META||!ed.src)return null;
+  const [W,H]=e.framing==='split'?[1080,1920]:META.aspects[e.aspect],sw=ed.src.width,sh=ed.src.height;
+  const q=cv.width/W,k=Math.min(W/sw,H/sh);return {W,H,sw,sh,k,q,ox:(W-sw*k)/2,oy:(H-sh*k)/2};}
+function splitRect(box){const f=splitFit();if(!f)return null;
+  return [f.ox+box.x*f.sw*f.k, f.oy+box.y*f.sh*f.k, box.w*f.sw*f.k, box.h*f.sh*f.k];}
+function splitHit(px,py){
+  const e=ed.edit;if(e.framing!=='split')return null;
+  const HANDLE=10;let best=null;
+  for(const name of ['facecam','gameplay']){const r=splitRect(e.split_boxes[name]);if(!r)continue;
+    const [rx,ry,rw,rh]=r;
+    const sides=[{box:name,mode:'resize',handle:'nw',x:rx,y:ry,w:HANDLE,h:HANDLE},
+                 {box:name,mode:'resize',handle:'ne',x:rx+rw-HANDLE,y:ry,w:HANDLE,h:HANDLE},
+                 {box:name,mode:'resize',handle:'sw',x:rx,y:ry+rh-HANDLE,w:HANDLE,h:HANDLE},
+                 {box:name,mode:'resize',handle:'se',x:rx+rw-HANDLE,y:ry+rh-HANDLE,w:HANDLE,h:HANDLE},
+                 {box:name,mode:'resize',handle:'n',x:rx+HANDLE,y:ry,w:rw-2*HANDLE,h:HANDLE},
+                 {box:name,mode:'resize',handle:'s',x:rx+HANDLE,y:ry+rh-HANDLE,w:rw-2*HANDLE,h:HANDLE},
+                 {box:name,mode:'resize',handle:'w',x:rx,y:ry+HANDLE,w:HANDLE,h:rh-2*HANDLE},
+                 {box:name,mode:'resize',handle:'e',x:rx+rw-HANDLE,y:ry+HANDLE,w:HANDLE,h:rh-2*HANDLE},
+                 {box:name,mode:'move',x:rx,y:ry,w:rw,h:rh}];
+    for(const h of sides){if(px>=h.x&&px<=h.x+h.w&&py>=h.y&&py<=h.y+h.h){best=h;if(h.mode!=='move')break}}}
+  return best;}
+function clampBox(b){
+  b.x=Math.max(0,Math.min(1,b.x));b.y=Math.max(0,Math.min(1,b.y));
+  b.w=Math.max(0.05,Math.min(1-b.x,b.w));b.h=Math.max(0.05,Math.min(1-b.y,b.h));
+  return b;}
+function drawSplit(t){
+  const f=splitFit();const e=ed.edit;const [W,H]=[f.W,f.H];
+  ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,f.cv.width,f.cv.height);
+  ctx.setTransform(f.q,0,0,f.q,0,0);
+  const ready=vid.readyState>=2;
+  if(ready){
+    ctx.drawImage(vid,f.ox,f.oy,f.sw*f.k,f.sh*f.k); // full source like the export's underlying frame
+    for(const [name,col] of [['facecam','#ff5a36'],['gameplay','#6db0ff']]){
+      const b=e.split_boxes[name];const r=splitRect(b);if(!r)continue;
+      const [rx,ry,rw,rh]=r;
+      ctx.save();ctx.strokeStyle=col;ctx.lineWidth=3/f.q;ctx.setLineDash([10,6]);
+      ctx.strokeRect(rx,ry,rw,rh);ctx.setLineDash([]);
+      ctx.fillStyle=hexA(col,0.12);ctx.fillRect(rx,ry,rw,rh);
+      ctx.fillStyle=col;ctx.font='700 14px system-ui';ctx.fillText(name==='facecam'?'FACECAM':'GAMEPLAY',rx+6,ry+20);
+      ctx.restore();
+    }
+  }
+  const s=S();
+  if(s.enabled){const pg=getPages(W,H).find(p=>t>=p.start&&t<p.end);if(pg)drawPage(pg,t,s,W,H)}
+  if(uiPrefs.safe)drawSafe(W,H);
+}
+  const e=ed.edit,q=cv.width/META.aspects[e.aspect][0],sw=ed.src.width,sh=ed.src.height;
+  if(e.framing==='split'){drawSplit(t);return;}
   let ee=e;
   if(e.tracking&&e.track&&e.track.length){const [px,py]=trackingPan(t,e);ee={...e,pan_x:px,pan_y:py};}
   ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);ctx.fillStyle='#000';ctx.fillRect(0,0,cv.width,cv.height);
   ctx.setTransform(q,0,0,q,0,0);
-  const [x,y,w,h]=frameRect(sw,sh,W,H,ee);
+  const [x,y,w,h]=frameRect(sw,sh,META.aspects[e.aspect][0],META.aspects[e.aspect][1],ee);
   const ready=vid.readyState>=2;
-  if(ready&&!(x<=0.5&&y<=0.5&&x+w>=W-0.5&&y+h>=H-0.5)){ // blurred background like the export
-    const c=Math.max(W/sw,H/sh);ctx.save();ctx.filter=`blur(${34*q}px) brightness(0.92)`;
-    ctx.drawImage(vid,(W-sw*c)/2-40,(H-sh*c)/2-40,sw*c+80,sh*c+80);ctx.restore()}
+  if(ready&&!(x<=0.5&&y<=0.5&&x+w>=META.aspects[e.aspect][0]-0.5&&y+h>=META.aspects[e.aspect][1]-0.5)){
+    const c=Math.max(META.aspects[e.aspect][0]/sw,META.aspects[e.aspect][1]/sh);ctx.save();ctx.filter=`blur(${34*q}px) brightness(0.92)`;
+    ctx.drawImage(vid,(META.aspects[e.aspect][0]-sw*c)/2-40,(META.aspects[e.aspect][1]-sh*c)/2-40,sw*c+80,sh*c+80);ctx.restore()}
   if(ready)ctx.drawImage(vid,x,y,w,h);
   const s=S();
-  if(s.enabled){const pg=getPages(W,H).find(p=>t>=p.start&&t<p.end);if(pg)drawPage(pg,t,s,W,H)}
-  if(uiPrefs.safe)drawSafe(W,H);
-  if(drag&&drag.kind==='cap'){const [l,tt,r,b]=captionSafeRect(W,H);ctx.save();ctx.setLineDash([12,8]);ctx.strokeStyle='rgba(255,90,54,.9)';ctx.lineWidth=3;ctx.strokeRect(l,tt,r-l,b-tt);ctx.restore()}
+  if(s.enabled){const pg=getPages(META.aspects[e.aspect][0],META.aspects[e.aspect][1]).find(p=>t>=p.start&&t<p.end);if(pg)drawPage(pg,t,s,META.aspects[e.aspect][0],META.aspects[e.aspect][1])}
+  if(uiPrefs.safe)drawSafe(META.aspects[e.aspect][0],META.aspects[e.aspect][1]);
+  if(drag&&drag.kind==='cap'){const [l,tt,r,b]=captionSafeRect(META.aspects[e.aspect][0],META.aspects[e.aspect][1]);ctx.save();ctx.setLineDash([12,8]);ctx.strokeStyle='rgba(255,90,54,.9)';ctx.lineWidth=3;ctx.strokeRect(l,tt,r-l,b-tt);ctx.restore()}
 }
-function hexA(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`}
 function roundedPath(x0,y0,x1,y1,r){r=Math.max(0,Math.min(r,(x1-x0)/2,(y1-y0)/2));const R=Math.round;
   ctx.beginPath();ctx.moveTo(R(x0+r),R(y0));ctx.lineTo(R(x1-r),R(y0));ctx.bezierCurveTo(R(x1),R(y0),R(x1),R(y0),R(x1),R(y0+r));
   ctx.lineTo(R(x1),R(y1-r));ctx.bezierCurveTo(R(x1),R(y1),R(x1),R(y1),R(x1-r),R(y1));ctx.lineTo(R(x0+r),R(y1));
@@ -908,15 +1009,16 @@ function drawSafe(W,H){
 
 // ---------- drag: captions (vertical) / video (fill pan, manual move) / wheel zoom
 let drag=null;
-function canvasPt(ev){const r=cv.getBoundingClientRect(),[W,H]=META.aspects[ed.edit.aspect];return [(ev.clientX-r.left)/r.width*W,(ev.clientY-r.top)/r.height*H]}
+function canvasPt(ev){const r=cv.getBoundingClientRect();const [W,H]=ed.edit.framing==='split'?[1080,1920]:META.aspects[ed.edit.aspect];return [(ev.clientX-r.left)/r.width*W,(ev.clientY-r.top)/r.height*H]}
 function capHit(px,py){
-  const s=S();if(!s.enabled)return false;const [W,H]=META.aspects[ed.edit.aspect],[l,,r]=captionSafeRect(W,H);
+  const s=S();if(!s.enabled)return false;const [W,H]=ed.edit.framing==='split'?[1080,1920]:META.aspects[ed.edit.aspect],[l,,r]=captionSafeRect(W,H);
   const pages=getPages(W,H);if(!pages.length)return false;const t=vid.currentTime-ed.start;
   const pg=pages.find(p=>t>=p.start&&t<p.end)||pages.reduce((a,p)=>Math.abs(p.start-t)<Math.abs(a.start-t)?p:a);
   return px>=l&&px<=r&&Math.abs(py-pg.cy)<=pg.half+20;
 }
 cv.addEventListener('pointerdown',ev=>{
   const [px,py]=canvasPt(ev),e=ed.edit;
+  if(e.framing==='split'){const h=splitHit(px,py);if(h){drag={kind:'split',box:h.box,mode:h.mode,handle:h.handle||'',x0:px,y0:py,box0:JSON.parse(JSON.stringify(e.split_boxes[h.box]))};cv.setPointerCapture(ev.pointerId);cv.classList.add('grabbing');return}}
   if(capHit(px,py))drag={kind:'cap',y0:py,off0:S().offset};
   else if(e.framing!=='fit')drag={kind:'vid',x0:px,y0:py,e0:{...e}};
   else return;
@@ -925,7 +1027,18 @@ cv.addEventListener('pointerdown',ev=>{
 cv.addEventListener('pointermove',ev=>{
   const [px,py]=canvasPt(ev);
   if(!drag){cv.className=capHit(px,py)?'ns':ed.edit.framing!=='fit'?'grab':'';return}
-  const [W,H]=META.aspects[ed.edit.aspect],e=ed.edit;
+  const e=ed.edit;
+  if(drag.kind==='split'){
+    const b=drag.box0,sw=ed.src.width,sh=ed.src.height,f=splitFit(),kx=f.sw*f.k,ky=f.sh*f.k;
+    const dx=(px-drag.x0)/kx,dy=(py-drag.y0)/ky,nb={...b};
+    if(drag.mode==='move'){nb.x+=dx;nb.y+=dy}
+    else{const h=drag.handle;
+      if(h.includes('w')){nb.x+=dx;nb.w-=dx}
+      if(h.includes('e'))nb.w+=dx;
+      if(h.includes('n')){nb.y+=dy;nb.h-=dy}
+      if(h.includes('s'))nb.h+=dy}
+    e.split_boxes[drag.box]=clampBox(nb);splitSyncInputs();pagesCache=null;ed.dirty=true;$('ed-dirty').style.display='inline';return}
+  const [W,H]=ed.edit.framing==='split'?[1080,1920]:META.aspects[e.aspect];
   if(drag.kind==='cap'){S().offset=Math.max(-0.5,Math.min(0.5,drag.off0+(py-drag.y0)/H));pagesCache=null}
   else if(e.framing==='manual'){e.off_x=drag.e0.off_x+(px-drag.x0)/W;e.off_y=drag.e0.off_y+(py-drag.y0)/H}
   else{const [,,w,h]=frameRect(ed.src.width,ed.src.height,W,H,e);
@@ -935,7 +1048,7 @@ cv.addEventListener('pointermove',ev=>{
 });
 const endDrag=()=>{if(!drag)return;
   if(drag.kind==='cap'){ // snap the stored offset to where the captions can actually go, so the slider stays meaningful
-    const [W,H]=META.aspects[ed.edit.aspect],s=S(),pages=getPages(W,H);
+    const [W,H]=ed.edit.framing==='split'?[1080,1920]:META.aspects[ed.edit.aspect],s=S(),pages=getPages(W,H);
     if(pages.length){const p=pages[0],[,t,,b]=captionSafeRect(W,H),base=s.position==='top'?t+p.half:s.position==='middle'?(t+b)/2:b-p.half;
       s.offset=Math.max(-0.5,Math.min(0.5,(p.cy-base)/H));pagesCache=null}}
   drag=null;cv.classList.remove('grabbing');syncControls()};
