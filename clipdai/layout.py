@@ -198,6 +198,8 @@ DEFAULT_STYLE = {
     "uppercase": True,
     "max_words": 3,        # per line; a caption shows at most 2 lines
     "emoji": True,
+    "highlight_keywords": False,
+    "keywords": [],
 }
 
 BUILTIN_PRESETS = {
@@ -231,6 +233,9 @@ DEFAULT_EDIT = {
     "cut_silence": False, "cut_fillers": False,
     "silence_threshold": 0.4, "filler_words": [], "cut_pad": 0.05, "cut_fade": 0.04,
     "cuts": None,
+    # auto-zoom punch-ins on hype moments
+    "zoom_enabled": False, "zoom_intensity": "normal",
+    "zoom_points": [],
     "captions": DEFAULT_STYLE,
 }
 
@@ -268,6 +273,9 @@ def normalize_style(d: dict | None) -> dict:
     out["uppercase"] = bool(d.get("uppercase", out["uppercase"]))
     out["max_words"] = int(_num(d.get("max_words"), 1, 8, out["max_words"]))
     out["emoji"] = bool(d.get("emoji", out["emoji"]))
+    out["highlight_keywords"] = bool(d.get("highlight_keywords", False))
+    kw = d.get("keywords")
+    out["keywords"] = [str(k).strip() for k in kw][:60] if isinstance(kw, list) else []
     return out
 
 
@@ -295,6 +303,10 @@ def normalize_edit(d: dict | None) -> dict:
     out["cut_fade"] = _num(d.get("cut_fade"), 0.0, 2, out["cut_fade"])
     c = d.get("cuts")
     out["cuts"] = c if (c is None or isinstance(c, list)) else None
+    z = d.get("zoom_points")
+    out["zoom_points"] = z if isinstance(z, list) else []
+    out["zoom_enabled"] = bool(d.get("zoom_enabled", False))
+    out["zoom_intensity"] = d.get("zoom_intensity") if d.get("zoom_intensity") in ("subtle", "normal", "strong") else out["zoom_intensity"]
     b = d.get("brand")
     out["brand"] = b if isinstance(b, dict) else None
     out["captions"] = normalize_style(d.get("captions"))
@@ -455,7 +467,10 @@ def build_ass(words: list, style: dict, W: int, H: int, clip_len: float) -> str 
                       f"{_rounded_rect(x0, y0, x1, y1, pg['em'] * 0.22)}{{\\p0}}")
 
         def text(active: int | None, reveal: int | None) -> str:
-            parts, k = [], 0
+            parts, k, line_emoji = [], 0, 0
+            kw = {re.sub(r"[^a-z0-9]+", "", str(k).lower()) for k in (style.get("keywords") or [])}
+            emoji_map = style.get("emoji_map") or {}
+            max_emoji = int(style.get("emoji_max_per_line") or 1)
             for li, ln in enumerate(pg["lines"]):
                 ws = []
                 for w in ln:
@@ -464,9 +479,18 @@ def build_ass(words: list, style: dict, W: int, H: int, clip_len: float) -> str 
                         t = "{\\alpha&HFF&}" + t + "{\\alpha&H00&}"
                     elif active is not None and k == active:
                         t = "{\\1c" + hi + "}" + t + "{\\1c" + base + "}"
+                    nk = re.sub(r"[^a-z0-9]+", "", t.lower())
+                    if style["highlight_keywords"] and nk and nk in kw:
+                        t = "{\\1c" + hi + "}" + t + "{\\1c" + base + "}"
+                    if style["emoji"] and line_emoji < max_emoji:
+                        em = emoji_map.get(nk)
+                        if em:
+                            t = t + " " + em
+                            line_emoji += 1
                     ws.append(t)
                     k += 1
                 parts.append(" ".join(ws))
+                line_emoji = 0
             return "\\N".join(parts)
 
         if anim in ("karaoke", "typewriter"):

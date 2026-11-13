@@ -390,6 +390,16 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
             <label class="f">Animation<select id="hook-anim"><option value="fade">Fade in/out</option><option value="pop">Pop in</option><option value="none">None</option></select></label>
             <div class="note">Drawn at the top center of the exported video using the brand primary color.</div>
           </fieldset>
+          <fieldset><legend>Keyword highlights &amp; emoji</legend>
+            <label class="chk"><input type="checkbox" id="hl-keywords"> Highlight keywords</label>
+            <div class="g2">
+              <label class="f">Mode<select id="hl-mode"><option value="rule">Rule-based</option><option value="llm">LLM-driven</option></select></label>
+              <button class="btn ghost sm" id="hl-select" type="button">Select keywords</button>
+            </div>
+            <label class="f">Keywords (comma separated)<input id="hl-keywords-list" placeholder="wow, money, secret, omg"></label>
+            <div class="note">Rule-based picks keywords, numbers, ALL CAPS and strong words. LLM mode needs a configured provider.
+              Emoji (max one per line) is controlled by “Keep emoji” above and rendered as text glyphs.</div>
+          </fieldset>
         </div>
         <div class="panel" id="p-text" role="tabpanel" aria-labelledby="tab-text" hidden>
           <div class="note">Words come from the clip's audio transcript (Whisper). Edit a word or its timing (seconds from the clip start), clear a word to remove it. Click a row's time to jump there.</div>
@@ -418,6 +428,17 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
             <div id="cut-list" class="words"></div>
             <div class="note">Cuts are applied at export on top of your trim. Deleted caption words are also cut.
               Captions are re-timed to the new timeline automatically.</div>
+          </fieldset>
+          <fieldset><legend>Auto-zoom punch-ins</legend>
+            <label class="chk"><input type="checkbox" id="zoom-enabled"> Enable auto-zoom on hype moments</label>
+            <div class="g2">
+              <label class="f">Intensity<select id="zoom-intensity"><option value="subtle">Subtle</option><option value="normal">Normal</option><option value="strong">Strong</option></select></label>
+              <button class="btn ghost sm" id="zoom-auto" type="button">Detect from audio</button>
+            </div>
+            <div class="note">Zoom points punch in ~1.15×–1.25× for ~1.4s with a minimum 3s gap between them.
+              Zooms target the tracked face when face tracking is on, otherwise the center.
+              Adjust points by dragging them on the preview timeline (shown as markers).</div>
+            <div id="zoom-points" class="words"></div>
           </fieldset>
         </div>
         <div class="panel" id="p-brand" role="tabpanel" aria-labelledby="tab-brand" hidden>
@@ -814,6 +835,23 @@ function buildStaticControls(){
   $('brand-save-default').onclick=async()=>{
     try{const r=await api('/api/brand',{brand:ed.edit.brand});META.brand=r.brand;toast('Default brand kit saved.','ok')}catch(e){toast(esc(e.message),'err')};
   };
+  $('c-emoji').onchange=()=>{S().emoji=$('c-emoji').checked;setDirty(true);};
+  $('hl-keywords').onchange=()=>{S().highlight_keywords=$('hl-keywords').checked;setDirty(true);};
+  $('hl-keywords-list').addEventListener('change',()=>{S().keywords=$('hl-keywords-list').value.split(',').map(w=>w.trim()).filter(w=>w);setDirty(true);});
+  $('hl-mode').onchange=()=>{setDirty(true);};
+  $('hl-select').onclick=async()=>{
+    materializeWords();const ws=(ed.words||[]).map(w=>[w[0]-ed.start,w[1]-ed.start,w[2]]);
+    try{const r=await api('/api/select-keywords',{words:ws,mode:$('hl-mode').value,custom:S().keywords});
+      $('hl-keywords-list').value=r.keywords.join(', ');S().keywords=r.keywords;S().highlight_keywords=true;$('hl-keywords').checked=true;setDirty(true);
+      toast(`${r.keywords.length} keyword${r.keywords.length!==1?'s':''} selected.`,'ok')}catch(e){toast(esc(e.message),'err')};
+  };
+  $('zoom-enabled').onchange=()=>{ed.edit.zoom_enabled=$('zoom-enabled').checked;setDirty(true);};
+  $('zoom-intensity').onchange=()=>{ed.edit.zoom_intensity=$('zoom-intensity').value;setDirty(true);};
+  $('zoom-auto').onclick=async()=>{
+    try{const r=await api('/api/auto-zoom',{source_id:ed.src.id,intensity:$('zoom-intensity').value});
+      ed.edit.zoom_points=r.points.map(p=>({t:p.t,z:p.z,x:p.x,y:p.y}));
+      renderZoomPoints();setDirty(true);toast(`${r.points.length} zoom point${r.points.length!==1?'s':''} detected.`,'ok')}catch(e){toast(esc(e.message),'err')};
+  };
 }
 async function loadSplitPresets(streamer){try{const r=await api('/api/split-presets?streamer='+encodeURIComponent(streamer||''));
   META.split_presets=r.presets;fillSplitPresets(streamer)}catch(e){}}
@@ -828,6 +866,9 @@ function fillSplitPresets(streamer){
 function splitSelectBox(boxes){const b=boxes[$('split-box').value];for(const k of ['x','y','w','h'])$('split-'+k).value=b[k];$('o-split-ratio')&&($('split-ratio').value=ed.edit.split_ratio);}
 function splitSyncInputs(){const b=ed.edit.split_boxes[$('split-box').value];for(const k of ['x','y','w','h']){const el=$('split-'+k);let v=parseFloat(el.value);if(Number.isNaN(v))v=b[k];el.value=v;b[k]=v}splitSelectBox(ed.edit.split_boxes);}
 function splitSetFromInputs(){splitSyncInputs();pagesCache=null;}
+function renderZoomPoints(){const pts=ed.edit.zoom_points||[];const el=$('zoom-points');
+  el.innerHTML=pts.map((p,i)=>`<div class="wr" style="font-size:12px;background:transparent;gap:8px"><span style="color:var(--mute)">${fmt(p.t,true)}s</span><span style="color:var(--accent)">×${p.z.toFixed(2)}</span><button class="btn ghost sm" type="button" onclick="removeZoomPoint(${i})">×</button></div>`).join('')||'<div class="note">No zoom points. Click “Detect from audio” to add them.</div>';pagesCache=null;}
+function removeZoomPoint(i){const pts=ed.edit.zoom_points||[];pts.splice(i,1);renderZoomPoints();setDirty(true);}
 function setFraming(v){
   const e=ed.edit,{width:sw,height:sh}=ed.src,[W,H]=META.aspects[e.aspect];
   if(v==='manual'&&e.framing!=='manual'){ // start manual from whatever is on screen now
@@ -856,6 +897,10 @@ function syncControls(){
   $('cut-silence').checked=!!e.cut_silence;$('cut-fillers').checked=!!e.cut_fillers;
   $('cut-threshold').value=e.silence_threshold;$('o-cut-threshold').textContent=e.silence_threshold+'s';
   $('cut-fillers-list').value=(e.filler_words||[]).join(', ');
+  const cs=e.captions||{};
+  $('c-emoji').checked=!!cs.emoji;
+  $('hl-keywords').checked=!!cs.highlight_keywords;
+  $('hl-keywords-list').value=(cs.keywords||[]).join(', ');
   const b=e.brand||{},hk=b.hook||{};
   $('hook-enabled').checked=!!hk.enabled;$('hook-title').value=hk.title||'';
   $('hook-duration').value=hk.duration||3;$('o-hook-duration').textContent=(hk.duration||3)+'s';
@@ -865,6 +910,8 @@ function syncControls(){
   $('wm-scale').value=b.wm_scale??0.10;$('o-brand-wm-scale').textContent=(b.wm_scale??0.10);
   $('brand-primary').value=b.primary||'#ff5a36';$('brand-secondary').value=b.secondary||'#6db0ff';
   $('brand-font').value=b.font||'Arial';
+  $('zoom-enabled').checked=!!e.zoom_enabled;$('zoom-intensity').value=e.zoom_intensity||'normal';
+  renderZoomPoints();
   const [W,H]=e.framing==='split'?[1080,1920]:META.aspects[e.aspect];$('dims').textContent=`Export: ${W}×${H} · source ${ed.src.width}×${ed.src.height}`;
   // keep the canvas element at export ratio; internal resolution capped for speed
   const q=Math.min(1,900/Math.max(W,H));if(cv.width!==Math.round(W*q)||cv.height!==Math.round(H*q)){cv.width=Math.round(W*q);cv.height=Math.round(H*q)}
@@ -1070,6 +1117,7 @@ function drawPage(pg,t,s,W,H){
     let x=pg.cx-tw/2;const by=top+li*pg.line_h+pg.asc*pg.em;
     ln.forEach((w,wi)=>{
       const hidden=anim==='typewriter'&&k>active, hi=(anim==='karaoke'||anim==='typewriter')&&k===active;
+      if(s.highlight_keywords){const nk=String(w.t).replace(/[^a-z0-9]+/g,'').toLowerCase();if(nk&&(s.keywords||[]).includes(nk))hi=true}
       if(!hidden){
         if(sd>0){ctx.fillStyle='rgba(0,0,0,.5)';ctx.strokeStyle='rgba(0,0,0,.5)';if(ol>0){ctx.lineWidth=2*ol;ctx.strokeText(w.t,x+sd,by+sd)}ctx.fillText(w.t,x+sd,by+sd)}
         if(ol>0){ctx.lineWidth=2*ol;ctx.strokeStyle='#000';ctx.strokeText(w.t,x,by)}

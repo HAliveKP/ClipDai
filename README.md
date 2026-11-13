@@ -57,7 +57,8 @@ The web app follows four steps.
 - **Aspect ratio:** 9:16 (default), 1:1, 4:5, 16:9, 4:3. The preview and the export size change together
   (1080×1920, 1080×1080, 1080×1350, 1920×1080, 1440×1080).
 - **Framing:** *Fit* (whole video over a blurred copy), *Fill* (crop to cover; drag to choose what stays in view),
-  *Manual* (drag to move; scroll or use the slider to zoom). Arrow keys nudge the video too.
+  *Manual* (drag to move; scroll or use the slider to zoom), *Split* (two source boxes — facecam and gameplay —
+  stacked into a vertical 1080×1920 frame; save presets per streamer). Arrow keys nudge the video too.
 - **Safe zones:** toggle guides for the TikTok, Reels and Shorts UI overlays. Captions always stay inside them.
 - **Captions:** word-timed from the transcript, at most 2 lines, auto-shrunk so nothing is ever cut off.
   - Position top / middle / bottom, a vertical offset slider, or drag the captions on the preview
@@ -65,6 +66,17 @@ The web app follows four steps.
   - Text, active-word and background-box colours, and box opacity
   - Animations: word-by-word highlight (karaoke), none, fade, pop, slide up, typewriter
   - UPPERCASE, max words per line, emoji on/off
+- **Keyword highlights & emoji:** rule-based or LLM-driven keyword highlighting in the brand colour, plus auto-emoji
+  (max one per line, rendered as text glyphs; drop Twemoji/Noto PNGs into `data/emoji/<codepoint>.png` for image
+  rendering). Emoji images are free: Twemoji (CC-BY 4.0) and Noto Emoji (SIL OFL).
+- **Cut silences & filler words:** drop gaps longer than a threshold and/or filler words ("um", "uh", …); preview the
+  cut list before export; captions are re-timed to the new timeline.
+- **Hook title:** editable top-centre title for the first N seconds with fade/pop-in animation, plus an
+  "Auto-generate hook" button (LLM, max 8 words).
+- **Auto-zoom punch-ins:** loudness-based hype-moment detection punches in ~1.05×–1.25× for ~1.4s (min 3s gap,
+  max count set by intensity), targeting the tracked face when face tracking is on, otherwise centre.
+- **Brand kit:** logo watermark with position/opacity/size, primary & secondary colours, font, and per-clip overrides.
+  Applied to every new clip automatically.
 - **Text & timing:** fix any word, change its start or end time, delete it, or reset to the transcript.
 - **Trim:** change the clip's start and end, or set them from the playhead.
 - **Presets:** five built-in caption styles, plus save your own. *Apply this style to all clips* can re-export
@@ -166,6 +178,8 @@ These `.env` settings control how clips are rendered the first time. Everything 
 
 `downloader.py` yt-dlp · `transcribe.py` faster-whisper · `highlights.py` LLM + offline picker ·
 `layout.py` aspect ratios, framing, safe zones and caption layout (mirrored in `ui.html`) · `fontmetrics.py` font
-measurements · `render.py` ffmpeg + libass export · `face.py` speaker crop · `pipeline.py` ingest, export, schedule,
-publish · `watch.py` channel watcher · `publishers/` manual, uploadpost, postiz, youtube · `server.py` + `ui.html` web
-app and editor · `cli.py`. See [PROJECT.md](PROJECT.md) for architecture and contributor notes.
+measurements · `render.py` ffmpeg + libass export · `face.py` speaker crop · `tracking.py` face tracking · `cuts.py`
+silence/filler removal · `zoom.py` auto-zoom punch-ins · `emphasis.py` keyword highlights & emoji · `brand.py` logo
+watermark & hook title · `pipeline.py` ingest, export, schedule, publish · `watch.py` channel watcher ·
+`publishers/` manual, uploadpost, postiz, youtube · `server.py` + `ui.html` web app and editor · `cli.py`. See
+[PROJECT.md](PROJECT.md) for architecture and contributor notes.

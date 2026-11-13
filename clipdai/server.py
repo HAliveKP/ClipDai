@@ -5,6 +5,8 @@ import json
 import base64
 import mimetypes
 import os
+import subprocess
+import tempfile
 import threading
 import time
 import traceback
@@ -14,6 +16,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from . import fontmetrics, layout, pipeline, watch
 from . import cuts
+from . import emphasis
+from . import zoom
 from . import brand as brand_module
 from . import llm
 from .db import DB
@@ -377,6 +381,54 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             except Exception as e:
                 raise ApiError(f"hook generation failed: {e}")
+        if p == "/api/select-keywords":
+            raw_words = d.get("words") or []
+            words = []
+            for w in raw_words:
+                try:
+                    words.append([round(float(w[0]), 3), round(float(w[1]), 3), str(w[2])])
+                except (TypeError, ValueError):
+                    continue
+            mode = str(d.get("mode") or "rule")
+            if mode not in ("rule", "llm"):
+                mode = "rule"
+            custom = [str(c).strip() for c in (d.get("custom") or []) if str(c).strip()]
+            if mode == "llm" and not llm.available(self.s):
+                raise ApiError("No LLM provider configured.")
+            keywords = emphasis.select_keywords_rule(words, custom) if mode == "rule" else emphasis.select_keywords_llm(self.s, words, custom)
+            return {"ok": True, "keywords": keywords, "mode": mode}
+        if p == "/api/auto-zoom":
+            source_id = d.get("source_id")
+            intensity = str(d.get("intensity") or "normal")
+            if intensity not in ("subtle", "normal", "strong"):
+                intensity = "normal"
+            src_path = None
+            if source_id is not None:
+                try:
+                    row = db.source(int(source_id))
+                except (ValueError, TypeError):
+                    row = None
+                if row:
+                    src_path, _, _, _ = pipeline.source_media(self.s, db, row)
+            if not src_path:
+                src_path = d.get("src_path") or ""
+            p = Path(src_path)
+            if not p.exists():
+                raise ApiError("source video is not on disk; re-add the link to download it again")
+            try:
+                wav = tempfile.mktemp(suffix=".wav")
+                subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                                "-i", str(p), "-vn", "-ac", "1", "-ar", "16000", wav],
+                               check=True, capture_output=True)
+                pts = zoom.detect_zoom_points(Path(wav), intensity=intensity)
+                return {"ok": True, "points": pts, "intensity": intensity}
+            except subprocess.CalledProcessError as e:
+                raise ApiError(f"audio extraction failed: {e.stderr.decode(errors='ignore')[-300:] if e.stderr else e}")
+            finally:
+                try:
+                    Path(wav).unlink(missing_ok=True)  # type: ignore[arg-type]
+                except OSError:
+                    pass
         if p == "/api/preview-cuts":
             raw_words = d.get("words") or []
             words = []

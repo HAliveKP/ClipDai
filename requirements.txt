@@ -17,5 +17,5 @@ numpy>=1.24
 google-api-python-client>=2.100
 google-auth-oauthlib>=1.2
 
-# optional: LAYOUT=face (crop around the speaker's face); uncomment or `pip install opencv-python-headless`
-# opencv-python-headless>=4.8
+# optional: LAYOUT=face / speaker tracking (crop around the speaker's face)
+opencv-python-headless>=4.8
