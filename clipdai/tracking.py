@@ -1,19 +1,22 @@
 """Dynamic face-tracking crop for vertical (9:16) export.
 
-Detects the speaker's face on downscaled frames sampled every ~0.5 s, smooths the
-position (exponential moving average + dead zone), and emits FFmpeg crop keyframes so
-the export window pans to follow the face. OpenCV (Haar cascade) only; when OpenCV is
+Detects the speaker's face on downscaled frames read sequentially (no seeking) at
+~3-5 fps, smooths the position (exponential moving average + dead zone), and emits
+FFmpeg crop keyframes so the export window pans to follow the face. Results are cached
+on disk so re-exports do not re-analyse. OpenCV (Haar cascade) only; when OpenCV is
 unavailable or detection fails the module returns ``None`` and the caller keeps the
 fixed crop, so an export never fails because of tracking.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
-SAMPLE_INTERVAL = 0.5          # seconds between detection samples
-DOWNSCALE_WIDTH = 480          # px wide frame used for detection (speed)
+SAMPLE_INTERVAL = 0.25          # seconds between detection samples (~4 fps)
+DOWNSCALE_WIDTH = 320           # px wide frame used for detection (speed)
 EMA_ALPHA = 0.35               # smoothing: higher tracks faster but jitters more
 DEAD_ZONE = 0.02               # fraction of frame width under which position is held
 MIN_DETECTIONS = 2             # minimum usable samples before accepting a track
@@ -26,6 +29,40 @@ class TrackPoint:
     y: float        # face centre, 0..1 across source height
 
 
+def _cache_dir() -> Path:
+    return Path("data") / "work" / "tracking"
+
+
+def _cache_key(video: Path, start: float, end: float) -> str:
+    h = hashlib.sha256()
+    h.update(str(video.resolve()).encode())
+    h.update(f"{start:.3f}".encode())
+    h.update(f"{end:.3f}".encode())
+    return h.hexdigest()[:32]
+
+
+def _load_cache(video: Path, start: float, end: float) -> list[TrackPoint] | None:
+    try:
+        p = _cache_dir() / f"{_cache_key(video, start, end)}.json"
+        if not p.exists():
+            return None
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return [TrackPoint(t=r["t"], x=r["x"], y=r["y"]) for r in raw]
+    except Exception:
+        return None
+
+
+def _save_cache(video: Path, start: float, end: float, pts: list[TrackPoint]) -> None:
+    try:
+        d = _cache_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{_cache_key(video, start, end)}.json"
+        p.write_text(json.dumps([asdict(pt) for pt in pts], ensure_ascii=False),
+                     encoding="utf-8")
+    except Exception:
+        pass  # cache is optional; never fail the export
+
+
 def _largest_face(faces) -> object | None:
     if not len(faces):
         return None
@@ -34,7 +71,16 @@ def _largest_face(faces) -> object | None:
 
 def detect_faces(video: Path, start: float, end: float,
                  interval: float = SAMPLE_INTERVAL) -> list[TrackPoint] | None:
-    """Return face-centre samples [(t, x01, y01), ...] or None on any failure."""
+    """Return face-centre samples [(t, x01, y01), ...] or None on any failure.
+
+    Reads frames sequentially (no seeking) for speed; detection runs on frames
+    downscaled to ``DOWNSCALE_WIDTH`` px width.
+    """
+    # Check cache first
+    cached = _load_cache(video, start, end)
+    if cached is not None and len(cached) >= MIN_DETECTIONS:
+        return cached
+
     try:
         import cv2
     except ImportError:  # opencv not installed: no tracking possible
@@ -53,13 +99,20 @@ def detect_faces(video: Path, start: float, end: float,
         if width <= 0 or height <= 0:
             cap.release()
             return None
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        frame_interval = max(1, int(round(fps * interval)))  # frames between samples
         pts: list[TrackPoint] = []
-        t = start
-        while t < end:
-            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000.0)
+        frame_idx = 0
+        while True:
             ok, frame = cap.read()
             if not ok:
                 break
+            t = frame_idx / fps
+            if t > end:
+                break
+            if t < start or frame_idx % frame_interval != 0:
+                frame_idx += 1
+                continue
             scale = DOWNSCALE_WIDTH / frame.shape[1] if frame.shape[1] > DOWNSCALE_WIDTH else 1.0
             small = cv2.resize(frame, None, fx=scale, fy=scale) if scale != 1.0 else frame
             gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
@@ -71,13 +124,14 @@ def detect_faces(video: Path, start: float, end: float,
                 fx, fy, fw, fh = face
                 cx = (fx + fw / 2) / scale / width
                 cy = (fy + fh / 2) / scale / height
-                pts.append(TrackPoint(t,
+                pts.append(TrackPoint(round(t, 3),
                                       min(1.0, max(0.0, cx)),
                                       min(1.0, max(0.0, cy))))
-            t += interval
+            frame_idx += 1
         cap.release()
         if len(pts) < MIN_DETECTIONS:
             return None
+        _save_cache(video, start, end, pts)
         return pts
     except Exception:  # any OpenCV / file error: degrade to fixed crop
         return None

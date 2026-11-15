@@ -17,6 +17,21 @@ from .transcribe import Segment
 from .utils import run, log
 
 
+def _video_codec() -> str:
+    """Detect an available H.264 encoder; fall back through common options."""
+    for codec in ("libx264", "h264_mf", "h264_nvenc", "hevc_mf", "mpeg4"):
+        try:
+            out = run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-encoders"]).stdout
+            if codec in out:
+                return codec
+        except Exception:
+            continue
+    return "libx264"  # let ffmpeg fail with a clear error if nothing available
+
+
+_VIDEO_CODEC = _video_codec()
+
+
 def _ffmpeg_size(path: Path) -> tuple[int, int]:
     """Fallback probe: parse the resolution ffmpeg prints for the first video stream."""
     out = run(["ffmpeg", "-hide_banner", "-i", str(path), "-f", "null", "-"]).stderr
@@ -118,8 +133,8 @@ def video_filter(sw: int, sh: int, W: int, H: int, edit: dict, input_label: str 
         return f"{input_label}{fg}[base]"
     bw, bh = _even(W / 4), _even(H / 4)
     return (f"{input_label}split=2[a][b];"
-            f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=8:3,"
-            f"eq=brightness=-0.08,scale={W}:{H},setsar=1[bg];"
+            f"[a]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=3,"
+            f"scale={W}:{H},setsar=1[bg];"
             f"[b]{fg}[fg];[bg][fg]overlay={ox}:{oy}[base]")
 
 
@@ -132,9 +147,10 @@ def _has_audio(path: Path) -> bool:
 
 
 def _ass_part(tdir: Path, rel: list, style: dict, W: int, H: int, dur: float, base_vf: str, last: str):
-    ass = layout.build_ass(rel, style, W, H, dur)
-    if not ass:
-        return base_vf, last
+    ass_result = layout.build_ass(rel, style, W, H, dur)
+    if not ass_result:
+        return base_vf, last, []
+    ass, emoji_overlays = ass_result
     caps_ass = tdir / "caps.ass"
     caps_ass.write_text(ass, encoding="utf-8")
     fdir = tdir / "fonts"; fdir.mkdir()
@@ -142,7 +158,13 @@ def _ass_part(tdir: Path, rel: list, style: dict, W: int, H: int, dur: float, ba
         f = fontmetrics._find(name)
         if f:
             shutil.copy(f, fdir / f.name)
-    return base_vf + ";[base]subtitles=caps.ass:fontsdir=fonts[vout]", "vout"
+    # Copy emoji PNGs to temp dir for overlay
+    emoji_dir = Path("data") / "emoji"
+    for ov in emoji_overlays:
+        src = emoji_dir / f"{ov['cp']}.png"
+        if src.exists():
+            shutil.copy(src, tdir / f"emoji_{ov['cp']}.png")
+    return base_vf + ";[base]subtitles=caps.ass:fontsdir=fonts[vout]", "vout", emoji_overlays
 
 
 def _ass_escape(text: str) -> str:
@@ -320,39 +342,48 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
         ha = _has_audio(src)
         fade = float(edit.get("cut_fade", cuts.DEFAULT_FADE))
 
-        def seg_vf(A: float, B: float, zseg: dict | None) -> str:
+        def seg_vf(A: float, B: float, zseg: dict | None, out_label: str) -> str:
+            """Per-segment filter: trim + setpts + framing (crop+scale). Returns filter fragment."""
             if zseg is None:
-                return video_filter(sw, sh, W, H, edit)
-            z = float(zseg["z"])
-            cx, cy = sw / 2.0, sh / 2.0
-            if edit.get("tracking") and edit.get("track"):
-                track = edit["track"]
-                ts = [float(k[0]) for k in track]
-                tt = max(ts[0], min(ts[-1], float(zseg["t"])))
-                for i in range(len(ts) - 1):
-                    if ts[i] <= tt <= ts[i + 1]:
-                        f = (tt - ts[i]) / (ts[i + 1] - ts[i])
-                        px = float(track[i][1]) + f * (float(track[i + 1][1]) - float(track[i][1]))
-                        py = float(track[i][2]) + f * (float(track[i + 1][2]) - float(track[i][2]))
-                        break
-                else:
-                    px, py = float(track[0][1]), float(track[0][2])
-                kc = max(W / sw, H / sh)
-                cw0, ch0 = sw * kc, sh * kc
-                cx = px * (sw - cw0) + cw0 / 2
-                cy = py * (sh - ch0) + ch0 / 2
-            cw = max(2.0, sw / z)
-            ch = max(2.0, sh / z)
-            cx = min(max(cx, cw / 2), sw - cw / 2)
-            cy = min(max(cy, ch / 2), sh - ch / 2)
-            return (f"[0:v]trim=start={A:.3f}:end={B:.3f},"
-                    f"crop={cw:.2f}:{ch:.2f}:{cx:.2f}:{cy:.2f},scale={W}:{H}:flags=bicubic,setsar=1[base]")
+                # Normal segment: fit scaling to canvas (may letterbox, but safe)
+                kc = min(W / sw, H / sh)
+                cw0 = sw * kc
+                ch0 = sh * kc
+                cx = (W - cw0) / 2
+                cy = (H - ch0) / 2
+                cw = cw0
+                ch = ch0
+            else:
+                z = float(zseg["z"])
+                cx, cy = sw / 2.0, sh / 2.0
+                if edit.get("tracking") and edit.get("track"):
+                    track = edit["track"]
+                    ts = [float(k[0]) for k in track]
+                    tt = max(ts[0], min(ts[-1], float(zseg["t"])))
+                    for i in range(len(ts) - 1):
+                        if ts[i] <= tt <= ts[i + 1]:
+                            f = (tt - ts[i]) / (ts[i + 1] - ts[i])
+                            px = float(track[i][1]) + f * (float(track[i + 1][1]) - float(track[i][1]))
+                            py = float(track[i][2]) + f * (float(track[i + 1][2]) - float(track[i][2]))
+                            break
+                    else:
+                        px, py = float(track[0][1]), float(track[0][2])
+                    kc = max(W / sw, H / sh)
+                    cw0, ch0 = sw * kc, sh * kc
+                    cx = px * (sw - cw0) + cw0 / 2
+                    cy = py * (sh - ch0) + ch0 / 2
+                cw = max(2.0, sw / z)
+                ch = max(2.0, sh / z)
+                cx = min(max(cx, cw / 2), sw - cw / 2)
+                cy = min(max(cy, ch / 2), sh - ch / 2)
+            return (f"[0:v]trim=start={A:.3f}:end={B:.3f},setpts=PTS-{A:.3f}/TB+{offset[0]:.3f}/TB,"
+                    f"crop={cw:.2f}:{ch:.2f}:{cx:.2f}:{cy:.2f},scale={W}:{H}:flags=bicubic,setsar=1[{out_label}]")
 
         segs: list[Path] = []
         if len(segments) == 1 and segments[0]["zoom"] is None and abs(segments[0]["a"] - start) < 0.001 and abs(segments[0]["b"] - end) < 0.001:
             # plain single-pass export (no cuts, no effective zoom)
             vf = video_filter(sw, sh, W, H, edit)
-            vf, last = _ass_part(tdir, rel, style, W, H, dur, vf, "base")
+            vf, last, emoji_ov = _ass_part(tdir, rel, style, W, H, dur, vf, "base")
             brand = edit.get("brand") or {}
             hook = brand_module.hook_style(brand)
             if hook.enabled and hook.title:
@@ -363,6 +394,18 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
             wm_chain, last = _wm_filter(brand, W, H, data_dir, last, tdir)
             if wm_chain:
                 vf += ";" + wm_chain
+            # emoji image overlays
+            emoji_dir = Path("data") / "emoji"
+            for i, ov in enumerate(emoji_ov):
+                src = emoji_dir / f"{ov['cp']}.png"
+                dst = tdir / f"emoji_{ov['cp']}_{i}.png"
+                if src.exists():
+                    shutil.copy(src, dst)
+                    elabel = f"[emoji{i}]"
+                    # Escape colon in Windows drive letter for ffmpeg filtergraph
+                    movie_path = dst.as_posix().replace(":", "\\:")
+                    vf += f";movie='{movie_path}'{elabel}[{last}][{elabel[1:-1]}]overlay={ov['x']:.0f}:{ov['y']:.0f}:enable='between(t,{ov['start']:.3f},{ov['end']:.3f})'[e{i}]"
+                    last = f"[e{i}]"
             fade_out = max(dur - 0.25, 0)
             af = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
             audio_map = ("-map", "0:a:0?") if ha else ()
@@ -370,49 +413,66 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
                 "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
                 "-ss", f"{start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{dur:.3f}",
                 "-filter_complex", vf, "-map", f"[{last}]", *audio_map, "-af", af,
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+                "-c:v", _VIDEO_CODEC, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
                 "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
                 str(out.resolve()),
             ]
             run(cmd, cwd=tdir)
             return out
-        # multi-segment export: cuts and/or zoom punch-ins
+        # multi-segment export: single-pass ffmpeg with unified filtergraph
+        ha = _has_audio(src)
+        fade = float(edit.get("cut_fade", cuts.DEFAULT_FADE))
+        offset = [0.0]
+        vf_parts: list[str] = []
+        af_parts: list[str] = []
+        vlabels: list[str] = []
+        alabels: list[str] = []
+
         for i, seg in enumerate(segments):
             A, B = seg["a"], seg["b"]
             seg_dur = B - A
-            seg_v = tdir / f"seg{i}.mp4"
-            vf = seg_vf(A, B, seg["zoom"])
-            fade_a = min(fade, seg_dur / 2)
-            af = (f"afade=t=in:st=0:d={fade_a:.2f},afade=t=out:st={max(seg_dur - fade_a, 0.0):.2f}:d={fade_a:.2f}"
-                  if seg_dur > 0.05 and ha else "")
-            cmd = [
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-ss", f"{A:.3f}", "-i", str(Path(src).resolve()), "-t", f"{seg_dur:.3f}",
-                "-filter_complex", vf, "-map", "[base]", *(("-map", "0:a:0?") if ha else ()),
-            ]
+            vlabels.append(f"[v{i}]")
+            vf_parts.append(seg_vf(A, B, seg["zoom"], f"v{i}"))
             if ha:
-                cmd += ["-af", af]
-            cmd += [
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
-                "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
-                str(seg_v),
-            ]
-            run(cmd)
-            segs.append(seg_v)
-        # concat demuxer: all segments share codec params, stream copy, continuous timeline from 0
-        pl = tdir / "segs.txt"
-        pl.write_text("".join(f"file '{p.resolve().as_posix()}'\n" for p in segs), encoding="utf-8")
+                alabels.append(f"[a{i}]")
+                fade_a = min(fade, seg_dur / 2)
+                af = (f"afade=t=in:st=0:d={fade_a:.2f},afade=t=out:st={max(seg_dur - fade_a, 0.0):.2f}:d={fade_a:.2f}"
+                      if seg_dur > 0.05 else "")
+                af_parts.append(
+                    f"[0:a]atrim=start={A:.3f}:end={B:.3f},asetpts=PTS-{A:.3f}/TB+{offset[0]:.3f}/TB{',' + af if af else ''}[a{i}]")
+            offset[0] += seg_dur
+
+        vf_concat = f"{''.join(vlabels)}concat=n={len(segments)}:v=1[a_concat]"
+        af_concat = f"{''.join(alabels)}concat=n={len(segments)}:v=0:a=1[a_concat_a]" if ha else ""
+        vf_all = ";".join(vf_parts) + ";" + vf_concat
+        if ha:
+            vf_all += ";" + ";".join(af_parts) + ";" + af_concat
+
         all_ = tdir / "all.mp4"
-        run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
-             "-i", str(pl), "-c", "copy", str(all_)])
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-i", str(Path(src).resolve()),
+            "-filter_complex", vf_all,
+            "-map", "[a_concat]",
+        ]
+        if ha:
+            cmd += ["-map", "[a_concat_a]"]
+        cmd += [
+            "-c:v", _VIDEO_CODEC, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
+            str(all_),
+        ]
+        run(cmd)
         # second pass: burn captions + hook title (+ watermark) on the assembled timeline
         brand = edit.get("brand") or {}
         hook = brand_module.hook_style(brand)
         chain: list[str] = []
         label = "[0:v]"
         dur = sum(s["b"] - s["a"] for s in segments) or dur  # length of the assembled (cut) timeline
-        ass = layout.build_ass(rel, style, W, H, dur)
-        if ass:
+        ass_result = layout.build_ass(rel, style, W, H, dur)
+        emoji_overlays: list[dict] = []
+        if ass_result:
+            ass, emoji_overlays = ass_result
             caps_ass = tdir / "caps.ass"
             caps_ass.write_text(ass, encoding="utf-8")
             fdir = tdir / "fonts"; fdir.mkdir()
@@ -431,7 +491,20 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
         wm_chain, last = _wm_filter(brand, W, H, data_dir, label[1:-1], tdir)
         if wm_chain:
             chain.append(wm_chain)
-            label = f"[{last}]"  # filter labels must be bracketed for -map
+            label = f"[{last}]"
+        # Emoji image overlays (on top of everything)
+        emoji_dir = Path("data") / "emoji"
+        for i, ov in enumerate(emoji_overlays):
+            src = emoji_dir / f"{ov['cp']}.png"
+            dst = tdir / f"emoji_{ov['cp']}_{i}.png"
+            if src.exists():
+                shutil.copy(src, dst)
+                emoji_label = f"[emoji{i}]"
+                # Escape colon in Windows drive letter for ffmpeg filtergraph
+                movie_path = dst.as_posix().replace(":", "\\:")
+                chain.append(f"movie='{movie_path}'{emoji_label}")
+                chain.append(f"{label}[{emoji_label[1:-1]}]overlay={ov['x']:.0f}:{ov['y']:.0f}:enable='between(t,{ov['start']:.3f},{ov['end']:.3f})'[e{i}]")
+                label = f"[e{i}]"
         vf2 = ";".join(chain)
         fade_out = max(dur - 0.25, 0)
         af2 = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
@@ -445,7 +518,7 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
             cmd2 += ["-map", "0:a:0?", "-af", af2]
         # encoder settings + output apply with or without audio
         cmd2 += [
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+            "-c:v", _VIDEO_CODEC, "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
             "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
             str(out.resolve()),
         ]

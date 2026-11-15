@@ -15,7 +15,7 @@ from clipdai import config, highlights, pipeline, render
 from clipdai.db import DB
 from clipdai.transcribe import Segment, Word, extract_audio
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=70",
-                "-f", "lavfi", "-i", "sine=frequency=300:duration=70", "-shortest", "-c:v", "libx264",
+                "-f", "lavfi", "-i", "sine=frequency=300:duration=70", "-shortest", "-c:v", "h264_mf",
                 "-preset", "ultrafast", "-c:a", "aac", "src.mp4"], check=True)
 s = config.load("/nonexistent")
 wav = extract_audio(Path("src.mp4"), s.work_dir / "src.wav")

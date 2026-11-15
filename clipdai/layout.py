@@ -320,6 +320,11 @@ UNKNOWN_ASCII = 0.62   # em width for an ASCII char missing from the metrics
 UNKNOWN_OTHER = 1.0    # em width for emoji / CJK / anything non-ASCII
 
 
+def emoji_codepoint(ch: str) -> str:
+    """Convert an emoji character to its Twemoji filename codepoint (lowercase hex)."""
+    return "_".join(f"{ord(c):x}" for c in ch)
+
+
 def font_metrics(style: dict) -> dict:
     return fontmetrics.metrics(style["font"], style["weight"] >= 600)
 
@@ -485,7 +490,7 @@ def build_ass(words: list, style: dict, W: int, H: int, clip_len: float) -> str 
                     if style["emoji"] and line_emoji < max_emoji:
                         em = emoji_map.get(nk)
                         if em:
-                            t = t + " " + em
+                            pg["emoji_list"].append({"line": li, "emoji": em, "cp": emoji_codepoint(em)})
                             line_emoji += 1
                     ws.append(t)
                     k += 1
@@ -494,6 +499,7 @@ def build_ass(words: list, style: dict, W: int, H: int, clip_len: float) -> str 
             return "\\N".join(parts)
 
         if anim in ("karaoke", "typewriter"):
+            pg["emoji_list"] = []
             for i, w in enumerate(flat):
                 st = pg["start"] if i == 0 else w["s"]
                 en = flat[i + 1]["s"] if i + 1 < len(flat) else pg["end"]
@@ -502,6 +508,7 @@ def build_ass(words: list, style: dict, W: int, H: int, clip_len: float) -> str 
                 body = text(i, i if anim == "typewriter" else None)
                 ev.append(f"Dialogue: 1,{_ass_time(st)},{_ass_time(en)},Cap,,0,0,0,,{{{pos}}}{body}")
         else:
+            pg["emoji_list"] = []
             tag = pos
             if anim == "fade":
                 tag += "\\fad(120,80)"
@@ -511,4 +518,27 @@ def build_ass(words: list, style: dict, W: int, H: int, clip_len: float) -> str 
                 tag = (f"\\an5\\move({cx:.1f},{cy + 0.035 * H:.1f},{cx:.1f},{cy:.1f},0,160)"
                        f"\\fs{pg['ass_size']:.2f}\\fad(100,0)")
             ev.append(f"Dialogue: 1,{_ass_time(pg['start'])},{_ass_time(pg['end'])},Cap,,0,0,0,,{{{tag}}}{text(None, None)}")
-    return head + "\n".join(ev) + "\n"
+    # Collect emoji overlay info for image-based rendering
+    emoji_overlays = []
+    emoji_size = style["size"] * 0.6  # emoji smaller than caption text
+    for pg in pages:
+        for ei in pg.get("emoji_list", []):
+            line_idx = ei["line"]
+            # y: center of the line within the caption block
+            y = pg["cy"] - pg["block_h"] / 2 + line_idx * pg["line_h"] + pg["line_h"] / 2
+            # x: right edge of the caption box (or estimate from center + text width)
+            if pg["box"]:
+                x = pg["box"][2] - emoji_size
+            else:
+                x = pg["cx"] + pg["em"] * 8
+            emoji_overlays.append({
+                "cp": ei["cp"],
+                "start": pg["start"],
+                "end": pg["end"],
+                "x": max(0, x),
+                "y": max(0, y - emoji_size / 2),
+                "w": emoji_size,
+                "h": emoji_size,
+            })
+
+    return head + "\n".join(ev) + "\n", emoji_overlays

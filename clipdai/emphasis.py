@@ -5,9 +5,8 @@ words) plus an optional LLM-driven mode reusing the project's free LLM
 integration. Auto-emoji maps chosen keywords to emoji from a curated
 dictionary (at most one emoji per caption line). Rendering is handled in
 layout.build_ass: keyword words are painted in the brand highlight color and
-an emoji glyph is appended after them. Emoji render as text glyphs; drop
-Twemoji/Noto Emoji PNGs into data/emoji/<codepoint>.png for image-based
-rendering (documented in README).
+emoji are rendered as images (Twemoji PNGs from data/emoji/<codepoint>.png)
+overlayed on top of the caption text via ffmpeg overlay filters.
 """
 from __future__ import annotations
 
