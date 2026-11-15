@@ -423,7 +423,9 @@ class Handler(BaseHTTPRequestHandler):
                 b = float(d.get("end") or 0.0)
             except (TypeError, ValueError):
                 raise ApiError("start/end must be seconds") from None
-            rng = ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}"] if b > a else []
+            if b <= a:
+                b = a + 1.0  # ensure a valid range; caller always passes start<end
+            rng = ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}"]
             try:
                 wav = tempfile.mktemp(suffix=".wav")
                 subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *rng,

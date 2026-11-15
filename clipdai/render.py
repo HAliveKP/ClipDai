@@ -62,27 +62,6 @@ def _even(v: float) -> int:
     return max(2, int(round(v / 2)) * 2)
 
 
-def video_split(sw: int, sh: int, W: int, H: int, edit: dict) -> str:
-    """filter_complex producing [base] at WxH from input 0 for split (facecam + gameplay).
-
-    Two source-space boxes are cropped and scaled to fill stacked bands; bands sum to H.
-    Captions are overlaid by the caller on top of [base], so preview and export match.
-    """
-    fc_src, fc_dst, gp_src, gp_dst = layout.split_frame_rects(sw, sh, W, H, edit)
-    (fcx, fcy, fcw, fch) = fc_src
-    (_, _, ow, oh) = fc_dst
-    (gx, gy, gw, gh) = gp_src
-    goh = gp_dst[3]
-    fcw = max(fcw, 2); fch = max(fch, 2); gw = max(gw, 2); gh = max(gh, 2)
-    ow = max(_even(ow), 2); oh = max(_even(oh), 2)
-    goh = max(_even(goh), 2)
-    fc = (f"crop={int(round(fcw))}:{int(round(fch))}:{int(round(fcx))}:{int(round(fcy))},"
-          f"scale={ow}:{oh}:flags=bicubic,setsar=1")
-    gp = (f"crop={int(round(gw))}:{int(round(gh))}:{int(round(gx))}:{int(round(gy))},"
-          f"scale={ow}:{goh}:flags=bicubic,setsar=1")
-    return f"[0:v]{fc}[fc];[0:v]{gp}[gp];[fc][gp]vstack=inputs=2[base]"
-
-
 def video_split(sw: int, sh: int, W: int, H: int, edit: dict, input_label: str = "[0:v]") -> str:
     """filter_complex producing [base] at WxH from ``input_label`` for split layout."""
     fc_src, fc_dst, gp_src, gp_dst = layout.split_frame_rects(sw, sh, W, H, edit)
@@ -420,7 +399,6 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
             run(cmd, cwd=tdir)
             return out
         # multi-segment export: single-pass ffmpeg with unified filtergraph
-        ha = _has_audio(src)
         fade = float(edit.get("cut_fade", cuts.DEFAULT_FADE))
         offset = [0.0]
         vf_parts: list[str] = []

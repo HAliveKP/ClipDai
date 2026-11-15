@@ -378,7 +378,7 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
               <option value="pop">Pop / scale</option><option value="slide">Slide up</option><option value="typewriter">Typewriter</option></select></label>
             <label class="f">Max words per line (max 2 lines)<span class="rng"><input type="range" id="c-max_words" min="1" max="8" step="1"><output id="o-max_words"></output></span></label>
             <label class="chk"><input type="checkbox" id="c-uppercase"> UPPERCASE</label>
-            <label class="chk"><input type="checkbox" id="c-emoji"> Keep emoji <span class="note">(exported in monochrome)</span></label>
+            <label class="chk"><input type="checkbox" id="c-emoji"> Keep emoji <span class="note">(rendered as color images)</span></label>
           </fieldset>
           <fieldset><legend>Hook title (first seconds)</legend>
             <label class="chk"><input type="checkbox" id="hook-enabled"> Show hook title</label>
@@ -398,7 +398,7 @@ legend{font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase
             </div>
             <label class="f">Keywords (comma separated)<input id="hl-keywords-list" placeholder="wow, money, secret, omg"></label>
             <div class="note">Rule-based picks keywords, numbers, ALL CAPS and strong words. LLM mode needs a configured provider.
-              Emoji (max one per line) is controlled by “Keep emoji” above and rendered as text glyphs.</div>
+              Emoji (max one per line) renders as color images (Twemoji PNGs) on top of the caption.</div>
           </fieldset>
         </div>
         <div class="panel" id="p-text" role="tabpanel" aria-labelledby="tab-text" hidden>

@@ -104,15 +104,18 @@ def detect_faces(video: Path, start: float, end: float,
         pts: list[TrackPoint] = []
         frame_idx = 0
         while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
             t = frame_idx / fps
             if t > end:
                 break
             if t < start or frame_idx % frame_interval != 0:
+                # grab without decoding for speed on non-sampled frames
+                if not cap.grab():
+                    break
                 frame_idx += 1
                 continue
+            ok, frame = cap.read()
+            if not ok:
+                break
             scale = DOWNSCALE_WIDTH / frame.shape[1] if frame.shape[1] > DOWNSCALE_WIDTH else 1.0
             small = cv2.resize(frame, None, fx=scale, fy=scale) if scale != 1.0 else frame
             gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
