@@ -848,7 +848,7 @@ function buildStaticControls(){
   $('zoom-enabled').onchange=()=>{ed.edit.zoom_enabled=$('zoom-enabled').checked;setDirty(true);};
   $('zoom-intensity').onchange=()=>{ed.edit.zoom_intensity=$('zoom-intensity').value;setDirty(true);};
   $('zoom-auto').onclick=async()=>{
-    try{const r=await api('/api/auto-zoom',{source_id:ed.src.id,intensity:$('zoom-intensity').value});
+    try{const r=await api('/api/auto-zoom',{source_id:ed.src.id,start:ed.start,end:ed.end,intensity:$('zoom-intensity').value});
       ed.edit.zoom_points=r.points.map(p=>({t:p.t,z:p.z,x:p.x,y:p.y}));
       renderZoomPoints();setDirty(true);toast(`${r.points.length} zoom point${r.points.length!==1?'s':''} detected.`,'ok')}catch(e){toast(esc(e.message),'err')};
   };

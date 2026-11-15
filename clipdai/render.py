@@ -165,14 +165,17 @@ def _hook_ass(hook, W: int, H: int, color: str) -> str:
     else:
         eff = "{\\an8}"
     t = _ass_escape(str(hook.title))
-    fmt = "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-    t0 = f"{int(dur//3600)}:{int(dur%3600//60):02d}:{dur%60:05.2f}"
-    return ("[Script Info]\nTitle: hook\n[V4+Styles]\n"
-            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, TertiaryColour, BackColour,"
-            " Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, AlphaLevel, Encoding\n"
-            f"Style: hook,Arial,{size},{_ass_color(color)},&H000000&,&H00000000,&H00000000,-1,0,1,2,2,8,0,0,0,0,0\n"
-            f"[Events]\n{fmt}"
-            f"Dialogue: 0,0:00:00.00,{t},hook,,0,0,0,,{eff}{t}")
+    t0 = f"{int(dur // 3600)}:{int(dur % 3600 // 60):02d}:{dur % 60:05.2f}"
+    margin_v = int(round(H * 0.09))  # below the top platform overlay
+    return (f"[Script Info]\nTitle: hook\nScriptType: v4.00+\nPlayResX: {W}\nPlayResY: {H}\nWrapStyle: 0\n"
+            "ScaledBorderAndShadow: yes\n\n[V4+ Styles]\n"
+            "Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,"
+            "Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,"
+            "MarginV,Encoding\n"
+            f"Style: hook,Arial,{size},{_ass_color(color)},{_ass_color(color)},&H00000000,&H80000000,-1,0,0,0,"
+            f"100,100,0,0,1,{max(2, size // 14)},2,8,{int(W * 0.06)},{int(W * 0.06)},{margin_v},1\n\n"
+            "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+            f"Dialogue: 0,0:00:00.00,{t0},hook,,0,0,0,,{eff}{t}\n")
 
 
 def _esc_path(p: str) -> str:
@@ -259,9 +262,11 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
         if track:
             edit = {**edit, "track": track}
     keep = [[float(a), float(b)] for a, b in edit.get("cuts") or []]
-    if keep:
-        words = cuts.remap_words(words, keep)
+    # words are absolute source seconds; keep segments are clip-relative. Convert to clip-relative first,
+    # then remap onto the concatenated (cut) timeline - remap_words needs both in the same time base.
     rel = [(s - start, e - start, t) for s, e, t in words if e > start and s < end]
+    if keep:
+        rel = [(s, e, t) for s, e, t in cuts.remap_words(rel, keep)]
     style = edit["captions"]
     kw, emap = emphasis.plan(rel, style)
     style = {**style, "keywords": sorted(kw), "emoji_map": emap} if kw else style
@@ -405,6 +410,7 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
         hook = brand_module.hook_style(brand)
         chain: list[str] = []
         label = "[0:v]"
+        dur = sum(s["b"] - s["a"] for s in segments) or dur  # length of the assembled (cut) timeline
         ass = layout.build_ass(rel, style, W, H, dur)
         if ass:
             caps_ass = tdir / "caps.ass"
@@ -425,7 +431,7 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
         wm_chain, last = _wm_filter(brand, W, H, data_dir, label[1:-1], tdir)
         if wm_chain:
             chain.append(wm_chain)
-            label = "final"
+            label = f"[{last}]"  # filter labels must be bracketed for -map
         vf2 = ";".join(chain)
         fade_out = max(dur - 0.25, 0)
         af2 = f"loudnorm=I=-16:TP=-1.5:LRA=11,afade=t=in:st=0:d=0.12,afade=t=out:st={fade_out:.2f}:d=0.25"
@@ -437,10 +443,11 @@ def render_edit(src: Path, src_size: tuple[int, int], start: float, end: float, 
             cmd2 += ["-map", "0:v"]
         if ha:
             cmd2 += ["-map", "0:a:0?", "-af", af2]
-            cmd2 += [
-                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
-                    "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
-        str(out.resolve()),
+        # encoder settings + output apply with or without audio
+        cmd2 += [
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
+            "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-movflags", "+faststart",
+            str(out.resolve()),
         ]
         run(cmd2, cwd=tdir)
         return out

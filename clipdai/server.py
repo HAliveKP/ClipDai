@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import traceback
+import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -415,12 +416,24 @@ class Handler(BaseHTTPRequestHandler):
             p = Path(src_path)
             if not p.exists():
                 raise ApiError("source video is not on disk; re-add the link to download it again")
+            # analyse only the clip's range: loudness peaks are judged against the clip, not a 3-hour VOD,
+            # and we don't extract the whole source's audio on every click
+            try:
+                a = max(0.0, float(d.get("start") or 0.0))
+                b = float(d.get("end") or 0.0)
+            except (TypeError, ValueError):
+                raise ApiError("start/end must be seconds") from None
+            rng = ["-ss", f"{a:.3f}", "-t", f"{b - a:.3f}"] if b > a else []
             try:
                 wav = tempfile.mktemp(suffix=".wav")
-                subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *rng,
                                 "-i", str(p), "-vn", "-ac", "1", "-ar", "16000", wav],
                                check=True, capture_output=True)
-                pts = zoom.detect_zoom_points(Path(wav), intensity=intensity)
+                with wave.open(wav, "rb") as wf:
+                    dur = wf.getnframes() / float(wf.getframerate() or 16000)
+                pts = zoom.detect_zoom_points(Path(wav), dur, intensity=intensity)
+                for pt in pts:  # back to source time, which is what edit["zoom_points"] stores
+                    pt["t"] = round(float(pt["t"]) + a, 3)
                 return {"ok": True, "points": pts, "intensity": intensity}
             except subprocess.CalledProcessError as e:
                 raise ApiError(f"audio extraction failed: {e.stderr.decode(errors='ignore')[-300:] if e.stderr else e}")
